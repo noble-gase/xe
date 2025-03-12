@@ -1,4 +1,4 @@
-# xe
+# 氙-Xe
 
 [![golang](https://img.shields.io/badge/Language-Go-green.svg?style=flat)](https://golang.org)
 [![pkg.go.dev](https://img.shields.io/badge/dev-reference-007d9c?logo=go&logoColor=white&style=flat)](https://pkg.go.dev/github.com/noble-gase/xe)
