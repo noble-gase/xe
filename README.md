@@ -2,7 +2,7 @@
 
 [![golang](https://img.shields.io/badge/Language-Go-green.svg?style=flat)](https://golang.org)
 [![pkg.go.dev](https://img.shields.io/badge/dev-reference-007d9c?logo=go&logoColor=white&style=flat)](https://pkg.go.dev/github.com/noble-gase/xe)
-[![Apache 2.0 license](http://img.shields.io/badge/license-Apache%202.0-brightgreen.svg)](http://opensource.org/licenses/apache2.0)
+[![MIT](http://img.shields.io/badge/license-MIT-brightgreen.svg)](http://opensource.org/licenses/MIT)
 
 [氙-Xe] Go协程并发复用，降低CPU和内存负载
 
