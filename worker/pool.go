@@ -119,12 +119,26 @@ func (p *pool) Async(ctx context.Context, fn func(ctx context.Context)) {
 }
 
 func (p *pool) Close() {
+	select {
+	case <-p.ctx.Done(): // 已关闭
+		return
+	default:
+	}
+
 	// 销毁协程
 	p.cancel()
-	time.Sleep(time.Second)
+
 	// 关闭通道
-	close(p.input)
-	close(p.queue)
+	for {
+		select {
+		case <-p.input:
+		case <-p.queue:
+		default:
+			close(p.input)
+			close(p.queue)
+			return
+		}
+	}
 }
 
 func (p *pool) run() {
