@@ -15,7 +15,7 @@ import (
 
 func TestNormal(t *testing.T) {
 	m := make(map[int]int)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		m[i] = i
 	}
 	eg := WithContext(context.Background())
@@ -136,7 +136,7 @@ func ExampleGroup_justErrors() {
 			// Fetch the URL.
 			resp, err := http.Get(url)
 			if err == nil {
-				resp.Body.Close()
+				_ = resp.Body.Close()
 			}
 			return err
 		})
