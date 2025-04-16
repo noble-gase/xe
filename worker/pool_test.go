@@ -13,7 +13,7 @@ func TestSyncNormal(t *testing.T) {
 	p := NewPool(2)
 	defer p.Close()
 	m := make(map[int]int)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		m[i] = i
 	}
 	var wg sync.WaitGroup
@@ -40,7 +40,7 @@ func TestSyncLimit(t *testing.T) {
 	var wg sync.WaitGroup
 	// 没有并发数限制
 	now := time.Now()
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		wg.Add(1)
 		go func() {
 			sleep1s(ctx)
@@ -56,7 +56,7 @@ func TestSyncLimit(t *testing.T) {
 	p := NewPool(2)
 	defer p.Close()
 	now = time.Now()
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		wg.Add(1)
 		p.Sync(ctx, func(ctx context.Context) {
 			sleep1s(ctx)
@@ -91,7 +91,7 @@ func TestAsyncNormal(t *testing.T) {
 	p := NewPool(2)
 	defer p.Close()
 	m := make(map[int]int)
-	for i := 0; i < 4; i++ {
+	for i := range 4 {
 		m[i] = i
 	}
 	var wg sync.WaitGroup
@@ -130,7 +130,7 @@ func TestAsyncLimit(t *testing.T) {
 	p := NewPool(2)
 	defer p.Close()
 	now = time.Now()
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		wg.Add(1)
 		p.Async(ctx, func(ctx context.Context) {
 			sleep1s(ctx)
@@ -148,7 +148,7 @@ func TestAsyncRecover(t *testing.T) {
 	ch := make(chan struct{})
 	defer close(ch)
 	p := NewPool(2, WithPanicHandler(func(ctx context.Context, err interface{}, stack []byte) {
-		t.Log("[error] job panic:", err)
+		t.Log("[error] panic recovered:", err)
 		t.Log("[stack]", string(stack))
 		ch <- struct{}{}
 	}))
@@ -158,4 +158,24 @@ func TestAsyncRecover(t *testing.T) {
 		panic("oh my god!")
 	})
 	<-ch
+}
+
+func TestPoolClose(t *testing.T) {
+	for range 100 {
+		p := NewPool(1)
+		p.Sync(context.Background(), func(ctx context.Context) {
+			t.Log("hello")
+		})
+		p.Sync(context.Background(), func(ctx context.Context) {
+			t.Log("foo")
+		})
+		p.Sync(context.Background(), func(ctx context.Context) {
+			t.Log("bar")
+		})
+		p.Close() // 关闭pool
+		p.Sync(context.Background(), func(ctx context.Context) {
+			t.Log("closed")
+		})
+		time.Sleep(100 * time.Millisecond)
+	}
 }

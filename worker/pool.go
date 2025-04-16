@@ -95,11 +95,8 @@ func NewPool(cap int, opts ...Option) Pool {
 	p.cache = linklist.New[*task]()
 	// 预填充
 	if p.prefill > 0 {
-		count := p.prefill
-		if p.prefill > p.capacity {
-			count = p.capacity
-		}
-		for i := 0; i < count; i++ {
+		count := min(p.prefill, p.capacity)
+		for range count {
 			p.spawn()
 		}
 	}
@@ -111,10 +108,20 @@ func NewPool(cap int, opts ...Option) Pool {
 }
 
 func (p *pool) Sync(ctx context.Context, fn func(ctx context.Context)) {
+	select {
+	case <-p.ctx.Done(): // 已关闭
+		return
+	default:
+	}
 	p.input <- &task{ctx: ctx, fn: fn, mode: Sync}
 }
 
 func (p *pool) Async(ctx context.Context, fn func(ctx context.Context)) {
+	select {
+	case <-p.ctx.Done(): // 已关闭
+		return
+	default:
+	}
 	p.input <- &task{ctx: ctx, fn: fn, mode: Async}
 }
 
@@ -131,8 +138,14 @@ func (p *pool) Close() {
 	// 关闭通道
 	for {
 		select {
-		case <-p.input:
-		case <-p.queue:
+		case v, ok := <-p.input:
+			if ok && v != nil {
+				p.do(v)
+			}
+		case v, ok := <-p.queue:
+			if ok && v != nil {
+				p.do(v)
+			}
 		default:
 			close(p.input)
 			close(p.queue)
@@ -146,26 +159,40 @@ func (p *pool) run() {
 		select {
 		case <-p.ctx.Done():
 			return
-		case t := <-p.input:
+		case v, ok := <-p.input:
+			if !ok || v == nil {
+				break
+			}
 			select {
-			case p.queue <- t:
+			case <-p.ctx.Done(): // 已关闭
+				return
 			default:
-				// 未达上限，新开一个协程
-				if p.workers.Size() < p.capacity {
-					p.spawn()
-					p.queue <- t
-					break
-				}
-				// 异步模式，放入本地缓存
-				if t.mode == Async {
-					p.cache.Append(t)
-					break
-				}
-				// 同步模式，等待闲置协程
 				select {
-				case <-p.ctx.Done():
-					return
-				case p.queue <- t:
+				case p.queue <- v:
+				default:
+					// 未达上限，新开一个协程
+					if p.workers.Size() < p.capacity {
+						p.spawn()
+						select {
+						case <-p.ctx.Done():
+							return
+						default:
+							p.queue <- v
+						}
+						break
+					}
+					// 异步模式，放入本地缓存
+					if v.mode == Async {
+						p.cache.Append(v)
+						break
+					}
+					// 同步模式，等待闲置协程
+					select {
+					case <-p.ctx.Done():
+						return
+					default:
+						p.queue <- v
+					}
 				}
 			}
 		}
@@ -201,27 +228,23 @@ func (p *pool) spawn() {
 	p.workers.Append(wk)
 
 	go func(ctx context.Context, wk *worker) {
-		var taskCtx context.Context
-		defer func() {
-			if e := recover(); e != nil {
-				if p.panicFn != nil {
-					p.panicFn(taskCtx, e, debug.Stack())
-				}
-			}
-		}()
 		for {
-			var t *task
 			// 获取任务
 			select {
 			case <-p.ctx.Done(): // Pool关闭，销毁
 				return
 			case <-ctx.Done(): // 闲置超时，销毁
 				return
-			case t = <-p.queue: // 尝试从队列获取任务
+			case v, ok := <-p.queue: // 尝试从队列获取任务
+				if ok && v != nil {
+					wk.timeUsed = time.Now()
+					p.do(v)
+				}
 			default:
 				// 队列无任务，去取缓存的任务执行
 				if v, ok := p.cache.Remove(0); ok && v != nil {
-					t = v
+					wk.timeUsed = time.Now()
+					p.do(v)
 					break
 				}
 				// 缓存未取到任务，则等待新任务
@@ -230,15 +253,29 @@ func (p *pool) spawn() {
 					return
 				case <-ctx.Done():
 					return
-				case t = <-p.queue:
+				case v, ok := <-p.queue:
+					if ok && v != nil {
+						wk.timeUsed = time.Now()
+						p.do(v)
+					}
 				}
 			}
-			// 执行任务
-			wk.timeUsed = time.Now()
-			taskCtx = t.ctx
-			t.fn(t.ctx)
 		}
 	}(ctx, wk)
+}
+
+func (p *pool) do(task *task) {
+	if task == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if p.panicFn != nil {
+				p.panicFn(task.ctx, r, debug.Stack())
+			}
+		}
+	}()
+	task.fn(task.ctx)
 }
 
 var (

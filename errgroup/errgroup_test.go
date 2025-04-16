@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/noble-gase/xe/worker"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNormal(t *testing.T) {
@@ -17,7 +18,7 @@ func TestNormal(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		m[i] = i
 	}
-	eg := WithContext(context.Background(), worker.P())
+	eg := WithContext(context.Background())
 	eg.Go(func(context.Context) (err error) {
 		m[1]++
 		return
@@ -32,8 +33,65 @@ func TestNormal(t *testing.T) {
 	t.Log(m)
 }
 
+func sleep1s(context.Context) error {
+	time.Sleep(time.Second)
+	return nil
+}
+
+func TestGOMAXPROCS(t *testing.T) {
+	ctx := context.Background()
+
+	// 没有并发数限制
+	eg := WithContext(ctx)
+	now := time.Now()
+	eg.Go(sleep1s)
+	eg.Go(sleep1s)
+	eg.Go(sleep1s)
+	eg.Go(sleep1s)
+	err := eg.Wait()
+	assert.Nil(t, err)
+	sec := math.Round(time.Since(now).Seconds())
+	if sec != 1 {
+		t.FailNow()
+	}
+
+	// 限制并发数
+	eg2 := WithContext(ctx)
+	eg2.GOMAXPROCS(2)
+	now = time.Now()
+	eg2.Go(sleep1s)
+	eg2.Go(sleep1s)
+	eg2.Go(sleep1s)
+	eg2.Go(sleep1s)
+	err = eg2.Wait()
+	assert.Nil(t, err)
+	sec = math.Round(time.Since(now).Seconds())
+	if sec != 2 {
+		t.FailNow()
+	}
+
+	// context canceled
+	eg3 := WithContext(ctx)
+	eg3.GOMAXPROCS(2)
+	eg3.Go(func(context.Context) error {
+		return errors.New("error for testing errgroup context")
+	})
+	eg3.Go(func(ctx context.Context) error {
+		time.Sleep(time.Second)
+		select {
+		case <-ctx.Done():
+			t.Log("caused by", context.Cause(ctx))
+		default:
+		}
+		return nil
+	})
+	err = eg3.Wait()
+	assert.NotNil(t, err)
+	t.Log(err)
+}
+
 func TestRecover(t *testing.T) {
-	eg := WithContext(context.Background(), worker.P())
+	eg := WithContext(context.Background())
 	eg.Go(func(context.Context) (err error) {
 		panic("oh my god!")
 	})
@@ -65,7 +123,7 @@ func fakeSearch(kind string) Search {
 // simplify goroutine counting and error handling. This example is derived from
 // the sync.WaitGroup example at https://golang.org/pkg/sync/#example_WaitGroup.
 func ExampleGroup_justErrors() {
-	eg := WithContext(context.Background(), worker.P())
+	eg := WithContext(context.Background())
 	urls := []string{
 		"http://www.golang.org/",
 		"http://www.google.com/",
@@ -95,7 +153,7 @@ func ExampleGroup_justErrors() {
 // and error-handling.
 func ExampleGroup_parallel() {
 	Google := func(ctx context.Context, query string) ([]Result, error) {
-		eg := WithContext(ctx, worker.P())
+		eg := WithContext(context.Background())
 
 		searches := []Search{Web, Image, Video}
 		results := make([]Result, len(searches))
@@ -145,7 +203,7 @@ func TestZeroGroup(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		eg := WithContext(context.Background(), worker.P())
+		eg := WithContext(context.Background())
 
 		var firstErr error
 		for i, err := range tc.errs {
@@ -165,7 +223,7 @@ func TestZeroGroup(t *testing.T) {
 }
 
 func TestWithCancel(t *testing.T) {
-	eg := WithContext(context.Background(), worker.P())
+	eg := WithContext(context.Background())
 	eg.Go(func(ctx context.Context) error {
 		time.Sleep(100 * time.Millisecond)
 		return fmt.Errorf("boom")
