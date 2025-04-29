@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"errors"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -9,29 +10,22 @@ import (
 	"github.com/noble-gase/xe/internal/linklist"
 )
 
-type Mode int
-
-const (
-	Sync  Mode = 1
-	Async Mode = 2
-)
-
 const (
 	defaultPoolCap     = 10000
-	defaultIdleTimeout = 60 * time.Second
+	defaultIdleTimeout = 5 * time.Minute
+)
+
+var (
+	ErrPoolClosed   = errors.New("pool closed")
+	ErrBlockTimeout = errors.New("block timeout")
 )
 
 // Pool 协程并发复用，降低CPU和内存负载
 type Pool interface {
-	// Sync 同步模式：没有闲置协程时会等待
+	// Go 执行任务，没有闲置协程时入缓存队列，队列达到上限会阻塞等待
 	//
 	// 通常需要 context.WithoutCancel(ctx)
-	Sync(ctx context.Context, fn func(ctx context.Context))
-
-	// Async 异步模式：没有闲置协程时会放人全局链表缓存
-	//
-	// 通常需要 context.WithoutCancel(ctx)
-	Async(ctx context.Context, fn func(ctx context.Context))
+	Go(ctx context.Context, fn func(ctx context.Context)) error
 
 	// Close 关闭资源
 	Close()
@@ -41,42 +35,49 @@ type Pool interface {
 type PanicFn func(ctx context.Context, err any, stack []byte)
 
 type worker struct {
-	timeUsed time.Time
-	cancel   context.CancelFunc
+	keepalive time.Time
+	cancel    context.CancelFunc
 }
 
 type task struct {
-	ctx  context.Context
-	fn   func(ctx context.Context)
-	mode Mode
+	ctx context.Context
+	fn  func(ctx context.Context)
 }
 
 type pool struct {
 	input chan *task
-	queue chan *task
-	cache *linklist.DoublyLinkList[*task]
+
+	queue     chan *task
+	queueSize int
+
+	cache     *linklist.DoublyLinkList[*task]
+	cacheSize int
 
 	capacity int
+	prefill  int
 	workers  *linklist.DoublyLinkList[*worker]
 
-	prefill     int
-	queueCap    int
-	idleTimeout time.Duration
-	panicFn     PanicFn
+	blockTimeout time.Duration
+	idleTimeout  time.Duration
+
+	panicFn PanicFn
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-// NewPool 生成一个新的Pool
-func NewPool(cap int, opts ...Option) Pool {
+// New 生成一个新的Pool
+func New(cap int, opts ...Option) Pool {
 	if cap <= 0 {
 		cap = defaultPoolCap
 	}
 
 	ctx, cancel := context.WithCancel(context.TODO())
+
 	p := &pool{
 		input: make(chan *task),
+
+		cache: linklist.New[*task](),
 
 		capacity: cap,
 		workers:  linklist.New[*worker](),
@@ -90,9 +91,7 @@ func NewPool(cap int, opts ...Option) Pool {
 	for _, fn := range opts {
 		fn(p)
 	}
-	p.queue = make(chan *task, p.queueCap)
-	// 缓存链表
-	p.cache = linklist.New[*task]()
+	p.queue = make(chan *task, p.queueSize)
 	// 预填充
 	if p.prefill > 0 {
 		count := min(p.prefill, p.capacity)
@@ -107,22 +106,33 @@ func NewPool(cap int, opts ...Option) Pool {
 	return p
 }
 
-func (p *pool) Sync(ctx context.Context, fn func(ctx context.Context)) {
+func (p *pool) Go(ctx context.Context, fn func(ctx context.Context)) error {
 	select {
 	case <-p.ctx.Done(): // 已关闭
-		return
+		return ErrPoolClosed
 	default:
 	}
-	p.input <- &task{ctx: ctx, fn: fn, mode: Sync}
-}
 
-func (p *pool) Async(ctx context.Context, fn func(ctx context.Context)) {
-	select {
-	case <-p.ctx.Done(): // 已关闭
-		return
-	default:
+	// 无阻塞超时
+	if p.blockTimeout == 0 {
+		p.input <- &task{ctx: ctx, fn: fn}
+		return nil
 	}
-	p.input <- &task{ctx: ctx, fn: fn, mode: Async}
+
+	// 阻塞超时
+	blockCtx, cancel := context.WithTimeout(context.TODO(), p.blockTimeout)
+	defer cancel()
+
+	for {
+		select {
+		case <-p.ctx.Done(): // 已关闭
+			return ErrPoolClosed
+		case <-blockCtx.Done():
+			return ErrBlockTimeout
+		case p.input <- &task{ctx: ctx, fn: fn}:
+			return nil
+		}
+	}
 }
 
 func (p *pool) Close() {
@@ -174,21 +184,21 @@ func (p *pool) run() {
 					if p.workers.Size() < p.capacity {
 						p.spawn()
 						select {
-						case <-p.ctx.Done():
+						case <-p.ctx.Done(): // 已关闭
 							return
 						default:
 							p.queue <- v
 						}
 						break
 					}
-					// 异步模式，放入本地缓存
-					if v.mode == Async {
+					// 放入本地缓存
+					if p.cache.Size() < p.cacheSize {
 						p.cache.Append(v)
 						break
 					}
-					// 同步模式，等待闲置协程
+					// 等待闲置协程
 					select {
-					case <-p.ctx.Done():
+					case <-p.ctx.Done(): // 已关闭
 						return
 					default:
 						p.queue <- v
@@ -200,16 +210,16 @@ func (p *pool) run() {
 }
 
 func (p *pool) idle() {
-	ticker := time.NewTicker(p.idleTimeout)
+	ticker := time.NewTicker(p.idleTimeout / 10)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-p.ctx.Done():
+		case <-p.ctx.Done(): // 已关闭
 			return
 		case <-ticker.C:
 			idles := p.workers.Filter(func(index int, value *worker) bool {
-				return time.Since(value.timeUsed) > p.idleTimeout
+				return time.Since(value.keepalive) > p.idleTimeout
 			})
 			for _, wk := range idles {
 				wk.cancel()
@@ -221,8 +231,8 @@ func (p *pool) idle() {
 func (p *pool) spawn() {
 	ctx, cancel := context.WithCancel(context.TODO())
 	wk := &worker{
-		timeUsed: time.Now(),
-		cancel:   cancel,
+		keepalive: time.Now(),
+		cancel:    cancel,
 	}
 	// 存储协程信息
 	p.workers.Append(wk)
@@ -237,13 +247,13 @@ func (p *pool) spawn() {
 				return
 			case v, ok := <-p.queue: // 尝试从队列获取任务
 				if ok && v != nil {
-					wk.timeUsed = time.Now()
+					wk.keepalive = time.Now()
 					p.do(v)
 				}
 			default:
 				// 队列无任务，去取缓存的任务执行
 				if v, ok := p.cache.Remove(0); ok && v != nil {
-					wk.timeUsed = time.Now()
+					wk.keepalive = time.Now()
 					p.do(v)
 					break
 				}
@@ -255,7 +265,7 @@ func (p *pool) spawn() {
 					return
 				case v, ok := <-p.queue:
 					if ok && v != nil {
-						wk.timeUsed = time.Now()
+						wk.keepalive = time.Now()
 						p.do(v)
 					}
 				}
@@ -285,14 +295,14 @@ var (
 
 // Init 初始化默认的全局Pool
 func Init(cap int, opts ...Option) {
-	pp = NewPool(cap, opts...)
+	pp = New(cap, opts...)
 }
 
 // P 返回默认的全局Pool
 func P() Pool {
 	if pp == nil {
 		once.Do(func() {
-			pp = NewPool(defaultPoolCap)
+			pp = New(defaultPoolCap)
 		})
 	}
 	return pp

@@ -85,7 +85,7 @@ func BenchmarkWorkerPool(b *testing.B) {
 	runtime.GOMAXPROCS(1)
 	ctx := context.TODO()
 
-	p := NewPool(PoolCap)
+	p := New(PoolCap)
 	defer p.Close()
 
 	b.ResetTimer()
@@ -94,7 +94,7 @@ func BenchmarkWorkerPool(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		wg.Add(RunTimes)
 		for j := 0; j < RunTimes; j++ {
-			p.Sync(ctx, func(ctx context.Context) {
+			_ = p.Go(ctx, func(ctx context.Context) {
 				demoFunc(ctx)
 				wg.Done()
 			})
@@ -134,13 +134,13 @@ func BenchmarkWorkerPoolThroughput(b *testing.B) {
 	runtime.GOMAXPROCS(1)
 	ctx := context.TODO()
 
-	p := NewPool(PoolCap)
+	p := New(PoolCap)
 	defer p.Close()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < RunTimes; j++ {
-			p.Sync(ctx, demoFunc)
+			_ = p.Go(ctx, demoFunc)
 		}
 	}
 }

@@ -5,15 +5,6 @@ import "time"
 // 协程池选项
 type Option func(*pool)
 
-// WithIdleTimeout 协程闲置超时时长，默认：60s
-func WithIdleTimeout(duration time.Duration) Option {
-	return func(p *pool) {
-		if duration > 0 {
-			p.idleTimeout = duration
-		}
-	}
-}
-
 // WithPrefill 预填充协程数量
 func WithPrefill(n int) Option {
 	return func(p *pool) {
@@ -23,11 +14,38 @@ func WithPrefill(n int) Option {
 	}
 }
 
-// WithQueueCap 任务队列缓冲容量，默认无缓冲
-func WithQueueCap(cap int) Option {
+// WithQueueSize 任务队列大小，默认：0
+func WithQueueSize(size int) Option {
 	return func(p *pool) {
-		if cap > 0 {
-			p.queueCap = cap
+		if size > 0 {
+			p.queueSize = size
+		}
+	}
+}
+
+// WithCacheSize 任务缓存容量，默认：0
+func WithCacheSize(n int) Option {
+	return func(p *pool) {
+		if n > 0 {
+			p.cacheSize = n
+		}
+	}
+}
+
+// WithBlockTimeout 任务阻塞超时时长，默认：不限制
+func WithBlockTimeout(duration time.Duration) Option {
+	return func(p *pool) {
+		if duration > 0 {
+			p.blockTimeout = duration
+		}
+	}
+}
+
+// WithIdleTimeout 协程闲置超时时长，默认：5min
+func WithIdleTimeout(duration time.Duration) Option {
+	return func(p *pool) {
+		if duration > 0 {
+			p.idleTimeout = duration
 		}
 	}
 }
