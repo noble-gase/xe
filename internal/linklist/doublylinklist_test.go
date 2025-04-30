@@ -15,7 +15,7 @@ func TestNew(t *testing.T) {
 		t.Errorf("Got %v expected %v", actualValue, true)
 	}
 
-	list2 := New[int](1, 2)
+	list2 := New(1, 2)
 	if actualValue := list2.Size(); actualValue != 2 {
 		t.Errorf("Got %v expected %v", actualValue, 2)
 	}
@@ -57,10 +57,10 @@ func TestAppendAndPrepend(t *testing.T) {
 		t.Errorf("Got %v expected %v", actualValue, 3)
 	}
 	if actualValue, ok := list.Get(0); actualValue != "a" || !ok {
-		t.Errorf("Got %v expected %v", actualValue, "c")
+		t.Errorf("Got %v expected %v", actualValue, "a")
 	}
 	if actualValue, ok := list.Get(1); actualValue != "b" || !ok {
-		t.Errorf("Got %v expected %v", actualValue, "c")
+		t.Errorf("Got %v expected %v", actualValue, "b")
 	}
 	if actualValue, ok := list.Get(2); actualValue != "c" || !ok {
 		t.Errorf("Got %v expected %v", actualValue, "c")
