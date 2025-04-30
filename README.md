@@ -42,10 +42,10 @@ cpu: Intel(R) Core(TM) i5-1038NG7 CPU @ 2.00GHz
 func main() {
     ctx := context.Background()
 
-    pool := woker.NewPool(5000)
+    pool := woker.New(5000)
     for i := 0; i < 100000000; i++ {
         i := i
-        pool.Sync(ctx, func(ctx context.Context) {
+        pool.Go(ctx, func(ctx context.Context) {
             time.Sleep(time.Second)
             fmt.Println("Index:", i)
         })
@@ -98,13 +98,13 @@ func main() {
 func main() {
     ctx := context.Background()
 
-    pool := woker.NewPool(5000)
+    pool := woker.New(5000)
     for i := 0; i < 100; i++ {
         i := i
-        pool.Sync(ctx, func(ctx context.Context) {
+        pool.Go(ctx, func(ctx context.Context) {
             for j := 0; j < 1000000; j++ {
                 j := j
-                pool.Sync(ctx, func(ctx context.Context) {
+                pool.Go(ctx, func(ctx context.Context) {
                     time.Sleep(time.Second)
                     fmt.Println("Index:", i, "-", j)
                 })

@@ -114,7 +114,7 @@ func TestBlockTimeout(t *testing.T) {
 	err = p.Go(context.Background(), func(ctx context.Context) {
 		time.Sleep(2 * time.Second)
 	})
-	assert.ErrorIs(t, ErrBlockTimeout, err)
+	assert.ErrorIs(t, err, ErrBlockTimeout)
 }
 
 func TestPoolClose(t *testing.T) {

@@ -188,11 +188,11 @@ func (p *pool) run() {
 				default:
 					// 未达上限，新开一个协程
 					if p.workers.Size() < p.capacity {
-						p.spawn()
 						select {
 						case <-p.ctx.Done(): // Pool关闭
 							return
 						default:
+							p.spawn()
 							p.queue <- v
 						}
 						break
