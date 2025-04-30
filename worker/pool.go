@@ -12,7 +12,7 @@ import (
 
 const (
 	defaultPoolCap     = 10000
-	defaultIdleTimeout = 5 * time.Minute
+	defaultIdleTimeout = 10 * time.Minute
 )
 
 var (
@@ -108,15 +108,21 @@ func New(cap int, opts ...Option) Pool {
 
 func (p *pool) Go(ctx context.Context, fn func(ctx context.Context)) error {
 	select {
-	case <-p.ctx.Done(): // 已关闭
+	case <-p.ctx.Done(): // Pool关闭
 		return ErrPoolClosed
 	default:
 	}
 
 	// 无阻塞超时
 	if p.blockTimeout == 0 {
-		p.input <- &task{ctx: ctx, fn: fn}
-		return nil
+		for {
+			select {
+			case <-p.ctx.Done(): // Pool关闭
+				return ErrPoolClosed
+			case p.input <- &task{ctx: ctx, fn: fn}:
+				return nil
+			}
+		}
 	}
 
 	// 阻塞超时
@@ -125,9 +131,9 @@ func (p *pool) Go(ctx context.Context, fn func(ctx context.Context)) error {
 
 	for {
 		select {
-		case <-p.ctx.Done(): // 已关闭
+		case <-p.ctx.Done(): // Pool关闭
 			return ErrPoolClosed
-		case <-blockCtx.Done():
+		case <-blockCtx.Done(): // 阻塞超时
 			return ErrBlockTimeout
 		case p.input <- &task{ctx: ctx, fn: fn}:
 			return nil
@@ -137,7 +143,7 @@ func (p *pool) Go(ctx context.Context, fn func(ctx context.Context)) error {
 
 func (p *pool) Close() {
 	select {
-	case <-p.ctx.Done(): // 已关闭
+	case <-p.ctx.Done(): // Pool关闭
 		return
 	default:
 	}
@@ -174,7 +180,7 @@ func (p *pool) run() {
 				break
 			}
 			select {
-			case <-p.ctx.Done(): // 已关闭
+			case <-p.ctx.Done(): // Pool关闭
 				return
 			default:
 				select {
@@ -184,7 +190,7 @@ func (p *pool) run() {
 					if p.workers.Size() < p.capacity {
 						p.spawn()
 						select {
-						case <-p.ctx.Done(): // 已关闭
+						case <-p.ctx.Done(): // Pool关闭
 							return
 						default:
 							p.queue <- v
@@ -198,7 +204,7 @@ func (p *pool) run() {
 					}
 					// 等待闲置协程
 					select {
-					case <-p.ctx.Done(): // 已关闭
+					case <-p.ctx.Done(): // Pool关闭
 						return
 					default:
 						p.queue <- v
@@ -215,7 +221,7 @@ func (p *pool) idle() {
 
 	for {
 		select {
-		case <-p.ctx.Done(): // 已关闭
+		case <-p.ctx.Done(): // Pool关闭
 			return
 		case <-ticker.C:
 			idles := p.workers.Filter(func(index int, value *worker) bool {
@@ -245,13 +251,13 @@ func (p *pool) spawn() {
 				return
 			case <-ctx.Done(): // 闲置超时，销毁
 				return
-			case v, ok := <-p.queue: // 尝试从队列获取任务
+			case v, ok := <-p.queue: // 从队列获取任务
 				if ok && v != nil {
 					wk.keepalive = time.Now()
 					p.do(v)
 				}
 			default:
-				// 队列无任务，去取缓存的任务执行
+				// 队列无任务，取缓存的任务执行
 				if v, ok := p.cache.Remove(0); ok && v != nil {
 					wk.keepalive = time.Now()
 					p.do(v)
@@ -259,11 +265,11 @@ func (p *pool) spawn() {
 				}
 				// 缓存未取到任务，则等待新任务
 				select {
-				case <-p.ctx.Done():
+				case <-p.ctx.Done(): // Pool关闭，销毁
 					return
-				case <-ctx.Done():
+				case <-ctx.Done(): // 闲置超时，销毁
 					return
-				case v, ok := <-p.queue:
+				case v, ok := <-p.queue: // 从队列获取任务
 					if ok && v != nil {
 						wk.keepalive = time.Now()
 						p.do(v)

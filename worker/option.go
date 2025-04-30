@@ -14,7 +14,7 @@ func WithPrefill(n int) Option {
 	}
 }
 
-// WithQueueSize 任务队列大小，默认：0
+// WithQueueSize 任务队列大小，默认：0=无缓冲
 func WithQueueSize(size int) Option {
 	return func(p *pool) {
 		if size > 0 {
@@ -23,7 +23,7 @@ func WithQueueSize(size int) Option {
 	}
 }
 
-// WithCacheSize 任务缓存容量，默认：0
+// WithCacheSize 任务缓存容量，默认：0=不缓存
 func WithCacheSize(n int) Option {
 	return func(p *pool) {
 		if n > 0 {
@@ -32,7 +32,7 @@ func WithCacheSize(n int) Option {
 	}
 }
 
-// WithBlockTimeout 任务阻塞超时时长，默认：不限制
+// WithBlockTimeout 任务阻塞超时时长，默认：0=不限制
 func WithBlockTimeout(duration time.Duration) Option {
 	return func(p *pool) {
 		if duration > 0 {
@@ -41,7 +41,7 @@ func WithBlockTimeout(duration time.Duration) Option {
 	}
 }
 
-// WithIdleTimeout 协程闲置超时时长，默认：5min
+// WithIdleTimeout 协程闲置超时时长，默认：10min
 func WithIdleTimeout(duration time.Duration) Option {
 	return func(p *pool) {
 		if duration > 0 {
