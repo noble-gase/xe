@@ -22,7 +22,7 @@ var (
 
 // Pool 协程并发复用，降低CPU和内存负载
 type Pool interface {
-	// Go 执行任务，没有闲置协程时入缓存队列，队列达到上限会阻塞等待
+	// Go 执行任务，没有闲置协程时入缓存队列，队列缓存达到上限会阻塞等待
 	//
 	// 通常需要 context.WithoutCancel(ctx)
 	Go(ctx context.Context, fn func(ctx context.Context)) error
@@ -304,12 +304,19 @@ func Init(cap int, opts ...Option) {
 	pp = New(cap, opts...)
 }
 
-// P 返回默认的全局Pool
-func P() Pool {
+// Go 使用默认的全局Pool
+func Go(ctx context.Context, fn func(ctx context.Context)) error {
 	if pp == nil {
 		once.Do(func() {
 			pp = New(defaultPoolCap)
 		})
 	}
-	return pp
+	return pp.Go(ctx, fn)
+}
+
+// Close 关闭默认的全局Pool
+func Close() {
+	if pp != nil {
+		pp.Close()
+	}
 }
