@@ -14,15 +14,6 @@ func WithPrefill(n int) Option {
 	}
 }
 
-// WithQueueSize 任务队列大小，默认：0=无缓冲
-func WithQueueSize(size int) Option {
-	return func(p *pool) {
-		if size > 0 {
-			p.queueSize = size
-		}
-	}
-}
-
 // WithCacheSize 任务缓存容量，默认：0=不缓存
 func WithCacheSize(n int) Option {
 	return func(p *pool) {

@@ -22,7 +22,7 @@ var (
 
 // Pool 协程并发复用，降低CPU和内存负载
 type Pool interface {
-	// Go 执行任务，没有闲置协程时入缓存队列，队列缓存达到上限会阻塞等待
+	// Go 执行任务，没有闲置协程时入缓存队列，缓存达到上限会阻塞等待
 	//
 	// 通常需要 context.WithoutCancel(ctx)
 	Go(ctx context.Context, fn func(ctx context.Context)) error
@@ -46,11 +46,9 @@ type task struct {
 
 type pool struct {
 	input chan *task
+	queue chan *task
 
-	queue     chan *task
-	queueSize int
-
-	cache     *linklist.DoublyLinkList[*task]
+	cache     chan *task
 	cacheSize int
 
 	capacity int
@@ -77,8 +75,6 @@ func New(cap int, opts ...Option) Pool {
 	p := &pool{
 		input: make(chan *task),
 
-		cache: linklist.New[*task](),
-
 		capacity: cap,
 		workers:  linklist.New[*worker](),
 
@@ -91,7 +87,9 @@ func New(cap int, opts ...Option) Pool {
 	for _, fn := range opts {
 		fn(p)
 	}
-	p.queue = make(chan *task, p.queueSize)
+	p.queue = make(chan *task)
+	p.cache = make(chan *task, p.cacheSize)
+
 	// 预填充
 	if p.prefill > 0 {
 		count := min(p.prefill, p.capacity)
@@ -152,63 +150,94 @@ func (p *pool) Close() {
 	p.cancel()
 
 	// 关闭通道
-	for {
-		select {
-		case v, ok := <-p.input:
-			if ok && v != nil {
-				p.do(v)
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		finish := false
+		for {
+			select {
+			case v, ok := <-p.input:
+				if ok && v != nil {
+					p.do(v)
+				}
+			default:
+				if finish {
+					close(p.input)
+					return
+				}
+				finish = true
+				time.Sleep(200 * time.Millisecond)
 			}
-		case v, ok := <-p.queue:
-			if ok && v != nil {
-				p.do(v)
-			}
-		default:
-			close(p.input)
-			close(p.queue)
-			return
 		}
-	}
+	}()
+	go func() {
+		defer wg.Done()
+		finish := false
+		for {
+			select {
+			case v, ok := <-p.queue:
+				if ok && v != nil {
+					p.do(v)
+				}
+			default:
+				if finish {
+					close(p.queue)
+					return
+				}
+				finish = true
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		finish := false
+		for {
+			select {
+			case v, ok := <-p.cache:
+				if ok && v != nil {
+					p.do(v)
+				}
+			default:
+				if finish {
+					close(p.cache)
+					return
+				}
+				finish = true
+				time.Sleep(200 * time.Millisecond)
+			}
+		}
+	}()
+	wg.Wait()
 }
 
 func (p *pool) run() {
 	for {
 		select {
-		case <-p.ctx.Done():
+		case <-p.ctx.Done(): // Pool关闭
 			return
 		case v, ok := <-p.input:
 			if !ok || v == nil {
 				break
 			}
+
 			select {
 			case <-p.ctx.Done(): // Pool关闭
 				return
+			case p.queue <- v:
 			default:
+				// 未达上限，新开一个协程
+				if p.workers.Size() < p.capacity {
+					p.spawn()
+				}
+
+				// 等待闲置协程
 				select {
+				case <-p.ctx.Done(): // Pool关闭
+					return
 				case p.queue <- v:
-				default:
-					// 未达上限，新开一个协程
-					if p.workers.Size() < p.capacity {
-						select {
-						case <-p.ctx.Done(): // Pool关闭
-							return
-						default:
-							p.spawn()
-							p.queue <- v
-						}
-						break
-					}
-					// 放入本地缓存
-					if p.cache.Size() < p.cacheSize {
-						p.cache.Append(v)
-						break
-					}
-					// 等待闲置协程
-					select {
-					case <-p.ctx.Done(): // Pool关闭
-						return
-					default:
-						p.queue <- v
-					}
+				case p.cache <- v:
 				}
 			}
 		}
@@ -256,24 +285,10 @@ func (p *pool) spawn() {
 					wk.keepalive = time.Now()
 					p.do(v)
 				}
-			default:
-				// 队列无任务，取缓存的任务执行
-				if v, ok := p.cache.Remove(0); ok && v != nil {
+			case v, ok := <-p.cache: // 从缓存获取任务
+				if ok && v != nil {
 					wk.keepalive = time.Now()
 					p.do(v)
-					break
-				}
-				// 缓存未取到任务，则等待新任务
-				select {
-				case <-p.ctx.Done(): // Pool关闭，销毁
-					return
-				case <-ctx.Done(): // 闲置超时，销毁
-					return
-				case v, ok := <-p.queue: // 从队列获取任务
-					if ok && v != nil {
-						wk.keepalive = time.Now()
-						p.do(v)
-					}
 				}
 			}
 		}
