@@ -38,7 +38,7 @@ func TestTimeWheel(t *testing.T) {
 		return time.Second * 2
 	}, time.Second*2)
 
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		t.Log(<-ch)
 	}
 }

@@ -38,23 +38,24 @@ type task struct {
 	callback TaskFn // 任务执行函数
 	attempts int64  // 当前任务执行的次数
 
-	round     int           // 延迟执行的轮数
-	remainder time.Duration // 任务执行前的剩余延迟（小于时间轮精度）
+	round int           // 延迟执行的轮数
+	delay time.Duration // 任务执行前的剩余延迟（小于时间轮精度）
 
 	ctx context.Context
 }
 
 type timewheel struct {
-	slot   int
-	size   int
-	tick   time.Duration
-	bucket []*linklist.DoublyLinkList[*task]
+	slot int
+	size int
+	tick time.Duration
 
-	ctx    context.Context
-	cancel context.CancelFunc
+	bucket []*linklist.DoublyLinkList[*task]
 
 	ctxErrFn CtxErrFn // Ctx Done 处理函数
 	panicFn  PanicFn  // Panic处理函数
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 func (tw *timewheel) Go(ctx context.Context, taskFn TaskFn, delay time.Duration) string {
@@ -77,7 +78,7 @@ func (tw *timewheel) Stop() {
 	tw.cancel()
 }
 
-func (tw *timewheel) requeue(t *task, delay time.Duration) {
+func (tw *timewheel) requeue(t *task, duration time.Duration) {
 	select {
 	case <-tw.ctx.Done(): // 时间轮已停止
 		return
@@ -87,21 +88,21 @@ func (tw *timewheel) requeue(t *task, delay time.Duration) {
 	t.attempts++
 
 	tick := tw.tick.Nanoseconds()
-	duration := delay.Nanoseconds()
+	nanosec := duration.Nanoseconds()
 	// 圈数
-	t.round = int(duration / (tick * int64(tw.size)))
+	t.round = int(nanosec / (tick * int64(tw.size)))
 	// 槽位
-	slot := (int(duration/tick)%tw.size + tw.slot) % tw.size
+	slot := (int(nanosec/tick)%tw.size + tw.slot) % tw.size
 	if slot == tw.slot {
 		if t.round == 0 {
-			t.remainder = delay
+			t.delay = duration
 			tw.do(t)
 			return
 		}
 		t.round--
 	}
 	// 剩余延迟
-	t.remainder = time.Duration(duration % tick)
+	t.delay = time.Duration(nanosec % tick)
 	// 存储任务
 	tw.bucket[slot].Append(t)
 }
@@ -144,24 +145,21 @@ func (tw *timewheel) do(t *task) {
 			}
 		}()
 
-		if t.remainder > 0 {
-			time.Sleep(t.remainder)
+		if t.delay > 0 {
+			time.Sleep(t.delay)
 		}
 
 		select {
 		case <-tw.ctx.Done(): // 时间轮停止
-			return
 		case <-t.ctx.Done(): // 任务被取消
 			if tw.ctxErrFn != nil {
 				tw.ctxErrFn(t.ctx, t.id, t.ctx.Err())
 			}
-			return
 		default:
-		}
-
-		delay := t.callback(t.ctx, t.id, t.attempts)
-		if delay > 0 {
-			tw.requeue(t, delay)
+			duration := t.callback(t.ctx, t.id, t.attempts)
+			if duration > 0 {
+				tw.requeue(t, duration)
+			}
 		}
 	}(t)
 }
@@ -170,8 +168,9 @@ func (tw *timewheel) do(t *task) {
 func New(size int, tick time.Duration, opts ...Option) TimeWheel {
 	ctx, cancel := context.WithCancel(context.TODO())
 	tw := &timewheel{
-		size:   size,
-		tick:   tick,
+		size: size,
+		tick: tick,
+
 		bucket: make([]*linklist.DoublyLinkList[*task], size),
 
 		ctx:    ctx,
@@ -180,7 +179,7 @@ func New(size int, tick time.Duration, opts ...Option) TimeWheel {
 	for _, fn := range opts {
 		fn(tw)
 	}
-	for i := 0; i < size; i++ {
+	for i := range size {
 		tw.bucket[i] = linklist.New[*task]()
 	}
 
