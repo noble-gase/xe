@@ -15,10 +15,7 @@ const (
 	defaultIdleTimeout = 10 * time.Minute
 )
 
-var (
-	ErrPoolClosed   = errors.New("pool closed")
-	ErrBlockTimeout = errors.New("block timeout")
-)
+var ErrPoolClosed = errors.New("pool closed")
 
 // Pool 协程并发复用，降低CPU和内存负载
 type Pool interface {
@@ -108,34 +105,10 @@ func (p *pool) Go(ctx context.Context, fn func(ctx context.Context)) error {
 	select {
 	case <-p.ctx.Done(): // Pool关闭
 		return ErrPoolClosed
-	default:
-	}
-
-	// 无阻塞超时
-	if p.blockTimeout == 0 {
-		for {
-			select {
-			case <-p.ctx.Done(): // Pool关闭
-				return ErrPoolClosed
-			case p.input <- &task{ctx: ctx, fn: fn}:
-				return nil
-			}
-		}
-	}
-
-	// 阻塞超时
-	blockCtx, cancel := context.WithTimeout(context.TODO(), p.blockTimeout)
-	defer cancel()
-
-	for {
-		select {
-		case <-p.ctx.Done(): // Pool关闭
-			return ErrPoolClosed
-		case <-blockCtx.Done(): // 阻塞超时
-			return ErrBlockTimeout
-		case p.input <- &task{ctx: ctx, fn: fn}:
-			return nil
-		}
+	case <-ctx.Done():
+		return ctx.Err()
+	case p.input <- &task{ctx: ctx, fn: fn}:
+		return nil
 	}
 }
 

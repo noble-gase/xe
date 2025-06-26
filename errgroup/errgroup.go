@@ -28,13 +28,15 @@ type Group interface {
 }
 
 type group struct {
-	err     error
-	wg      sync.WaitGroup
-	errOnce sync.Once
+	wg sync.WaitGroup
 
-	workOnce sync.Once
-	ch       chan func(ctx context.Context) error
-	cache    []func(ctx context.Context) error
+	err  error
+	once sync.Once
+
+	remain int
+
+	ch    chan func(ctx context.Context) error
+	cache []func(ctx context.Context) error
 
 	ctx    context.Context
 	cancel context.CancelCauseFunc
@@ -53,36 +55,39 @@ func (g *group) GOMAXPROCS(n int) {
 	if n <= 0 {
 		return
 	}
-	g.workOnce.Do(func() {
-		g.ch = make(chan func(context.Context) error, n)
-		for range n {
-			go func() {
-				for fn := range g.ch {
-					g.do(fn)
-				}
-			}()
-		}
-	})
+	g.remain = n
+	g.ch = make(chan func(context.Context) error)
 }
 
 func (g *group) Go(fn func(ctx context.Context) error) {
 	g.wg.Add(1)
 
-	if g.ch != nil {
+	if g.ch == nil {
+		go g.do(fn)
+		return
+	}
+
+	select {
+	case g.ch <- fn:
+	default:
+		if g.remain > 0 {
+			g.spawn()
+		}
 		select {
 		case g.ch <- fn:
 		default:
 			g.cache = append(g.cache, fn)
 		}
-		return
 	}
-
-	go g.do(fn)
 }
 
 func (g *group) Wait() error {
 	defer func() {
-		g.cancel(g.err)
+		select {
+		case <-g.ctx.Done():
+		default:
+			g.cancel(nil)
+		}
 		if g.ch != nil {
 			close(g.ch) // let all receiver exit
 		}
@@ -98,6 +103,15 @@ func (g *group) Wait() error {
 	return g.err
 }
 
+func (g *group) spawn() {
+	go func() {
+		for fn := range g.ch {
+			g.do(fn)
+		}
+	}()
+	g.remain--
+}
+
 func (g *group) do(fn func(ctx context.Context) error) {
 	var err error
 	defer func() {
@@ -105,12 +119,16 @@ func (g *group) do(fn func(ctx context.Context) error) {
 			err = fmt.Errorf("errgroup panic recovered: %+v\n%s", r, string(debug.Stack()))
 		}
 		if err != nil {
-			g.errOnce.Do(func() {
+			g.once.Do(func() {
 				g.err = err
 				g.cancel(err)
 			})
 		}
 		g.wg.Done()
 	}()
-	err = fn(g.ctx)
+	select {
+	case <-g.ctx.Done():
+	default:
+		err = fn(g.ctx)
+	}
 }

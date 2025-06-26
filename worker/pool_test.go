@@ -98,69 +98,75 @@ func TestRecover(t *testing.T) {
 }
 
 func TestBlockTimeout(t *testing.T) {
-	p := New(1, WithCacheSize(1), WithBlockTimeout(time.Second))
+	ctx := context.Background()
+
+	p := New(1, WithCacheSize(1))
 	defer p.Close()
 
 	// 正常执行
-	err := p.Go(context.Background(), func(ctx context.Context) {
+	err := p.Go(ctx, func(ctx context.Context) {
 		time.Sleep(2 * time.Second)
 		t.Log("done-1")
 	})
 	assert.Nil(t, err)
 
 	// 等待队列
-	err = p.Go(context.Background(), func(ctx context.Context) {
+	err = p.Go(ctx, func(ctx context.Context) {
 		time.Sleep(2 * time.Second)
 		t.Log("done-2")
 	})
 	assert.Nil(t, err)
 
 	// 入缓存队列
-	err = p.Go(context.Background(), func(ctx context.Context) {
+	err = p.Go(ctx, func(ctx context.Context) {
 		time.Sleep(2 * time.Second)
 		t.Log("done-3")
 	})
 	assert.Nil(t, err)
 
 	// 阻塞超时
-	err = p.Go(context.Background(), func(ctx context.Context) {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	err = p.Go(ctx, func(ctx context.Context) {
 		time.Sleep(2 * time.Second)
 		t.Log("done-4")
 	})
-	assert.ErrorIs(t, err, ErrBlockTimeout)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 
 	time.Sleep(10 * time.Second)
 }
 
 func TestPoolClose(t *testing.T) {
+	ctx := context.Background()
+
 	for range 100 {
 		p := New(1)
 
-		_ = p.Go(context.Background(), func(ctx context.Context) {
+		_ = p.Go(ctx, func(ctx context.Context) {
 			t.Log("done-1")
 		})
-		_ = p.Go(context.Background(), func(ctx context.Context) {
+		_ = p.Go(ctx, func(ctx context.Context) {
 			t.Log("done-2")
 		})
-		_ = p.Go(context.Background(), func(ctx context.Context) {
+		_ = p.Go(ctx, func(ctx context.Context) {
 			t.Log("done-3")
 		})
-		_ = p.Go(context.Background(), func(ctx context.Context) {
+		_ = p.Go(ctx, func(ctx context.Context) {
 			t.Log("done-4")
 		})
-		_ = p.Go(context.Background(), func(ctx context.Context) {
+		_ = p.Go(ctx, func(ctx context.Context) {
 			t.Log("done-5")
 		})
 
 		go p.Close() // 关闭pool
 
-		_ = p.Go(context.Background(), func(ctx context.Context) {
+		_ = p.Go(ctx, func(ctx context.Context) {
 			t.Log("closed-1")
 		})
-		_ = p.Go(context.Background(), func(ctx context.Context) {
+		_ = p.Go(ctx, func(ctx context.Context) {
 			t.Log("closed-2")
 		})
-		_ = p.Go(context.Background(), func(ctx context.Context) {
+		_ = p.Go(ctx, func(ctx context.Context) {
 			t.Log("closed-3")
 		})
 
