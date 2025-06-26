@@ -96,7 +96,7 @@ func (tw *timewheel) requeue(t *task, duration time.Duration) {
 	if slot == tw.slot {
 		if t.round == 0 {
 			t.delay = duration
-			tw.do(t)
+			go tw.do(t)
 			return
 		}
 		t.round--
@@ -131,37 +131,35 @@ func (tw *timewheel) process(slot int) {
 		return true
 	})
 	for _, t := range tasks {
-		tw.do(t)
+		go tw.do(t)
 	}
 }
 
 func (tw *timewheel) do(t *task) {
-	go func(t *task) {
-		defer func() {
-			if err := recover(); err != nil {
-				if tw.panicFn != nil {
-					tw.panicFn(t.ctx, t.id, err, debug.Stack())
-				}
-			}
-		}()
-
-		if t.delay > 0 {
-			time.Sleep(t.delay)
-		}
-
-		select {
-		case <-tw.ctx.Done(): // 时间轮停止
-		case <-t.ctx.Done(): // 任务被取消
-			if tw.ctxErrFn != nil {
-				tw.ctxErrFn(t.ctx, t.id, t.ctx.Err())
-			}
-		default:
-			duration := t.callback(t.ctx, t.id, t.attempts)
-			if duration > 0 {
-				tw.requeue(t, duration)
+	defer func() {
+		if err := recover(); err != nil {
+			if tw.panicFn != nil {
+				tw.panicFn(t.ctx, t.id, err, debug.Stack())
 			}
 		}
-	}(t)
+	}()
+
+	if t.delay > 0 {
+		time.Sleep(t.delay)
+	}
+
+	select {
+	case <-tw.ctx.Done(): // 时间轮停止
+	case <-t.ctx.Done(): // 任务被取消
+		if tw.ctxErrFn != nil {
+			tw.ctxErrFn(t.ctx, t.id, t.ctx.Err())
+		}
+	default:
+		duration := t.callback(t.ctx, t.id, t.attempts)
+		if duration > 0 {
+			tw.requeue(t, duration)
+		}
+	}
 }
 
 // New 返回一个时间轮实例
