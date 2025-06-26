@@ -52,8 +52,7 @@ type pool struct {
 	prefill  int
 	workers  *linklist.DoublyLinkList[*worker]
 
-	blockTimeout time.Duration
-	idleTimeout  time.Duration
+	idleTimeout time.Duration
 
 	panicFn PanicFn
 
