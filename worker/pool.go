@@ -33,7 +33,9 @@ type PanicFn func(ctx context.Context, err any, stack []byte)
 
 type worker struct {
 	keepalive time.Time
-	cancel    context.CancelFunc
+
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type task struct {
@@ -236,35 +238,33 @@ func (p *pool) idle() {
 }
 
 func (p *pool) spawn() {
-	ctx, cancel := context.WithCancel(context.TODO())
 	wk := &worker{
 		keepalive: time.Now(),
-		cancel:    cancel,
 	}
+	wk.ctx, wk.cancel = context.WithCancel(context.TODO())
 	// 存储协程信息
 	p.workers.Append(wk)
 
-	go func(ctx context.Context, wk *worker) {
+	go func() {
 		for {
 			// 获取任务
 			select {
 			case <-p.ctx.Done(): // Pool关闭，销毁
 				return
-			case <-ctx.Done(): // 闲置超时，销毁
+			case <-wk.ctx.Done(): // 闲置超时，销毁
 				return
 			case v, ok := <-p.queue: // 从队列获取任务
 				if ok && v != nil {
-					wk.keepalive = time.Now()
 					p.do(v)
 				}
 			case v, ok := <-p.cache: // 从缓存获取任务
 				if ok && v != nil {
-					wk.keepalive = time.Now()
 					p.do(v)
 				}
 			}
+			wk.keepalive = time.Now()
 		}
-	}(ctx, wk)
+	}()
 }
 
 func (p *pool) do(task *task) {
