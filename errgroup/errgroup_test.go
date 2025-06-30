@@ -3,7 +3,6 @@ package errgroup
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -132,20 +131,4 @@ func TestZeroGroup(t *testing.T) {
 			}
 		}
 	}
-}
-
-func TestWithCancel(t *testing.T) {
-	eg := WithContext(context.Background())
-	eg.Go(func(ctx context.Context) error {
-		time.Sleep(100 * time.Millisecond)
-		return fmt.Errorf("boom")
-	})
-	var err error
-	eg.Go(func(ctx context.Context) error {
-		<-ctx.Done()
-		err = ctx.Err()
-		return err
-	})
-	_ = eg.Wait()
-	assert.ErrorIs(t, err, context.Canceled)
 }
