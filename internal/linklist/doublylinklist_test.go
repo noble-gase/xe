@@ -307,7 +307,7 @@ func TestString(t *testing.T) {
 
 func benchmarkGet(b *testing.B, list *DoublyLinkList[int], size int) {
 	for i := 0; i < b.N; i++ {
-		for n := 0; n < size; n++ {
+		for n := range size {
 			list.Get(n)
 		}
 	}
@@ -315,7 +315,7 @@ func benchmarkGet(b *testing.B, list *DoublyLinkList[int], size int) {
 
 func benchmarkAdd(b *testing.B, list *DoublyLinkList[int], size int) {
 	for i := 0; i < b.N; i++ {
-		for n := 0; n < size; n++ {
+		for n := range size {
 			list.Append(n)
 		}
 	}
@@ -323,7 +323,7 @@ func benchmarkAdd(b *testing.B, list *DoublyLinkList[int], size int) {
 
 func benchmarkRemove(b *testing.B, list *DoublyLinkList[int], size int) {
 	for i := 0; i < b.N; i++ {
-		for n := 0; n < size; n++ {
+		for n := range size {
 			list.Remove(n)
 		}
 	}
@@ -333,7 +333,7 @@ func BenchmarkDoublyLinkedListGet100(b *testing.B) {
 	b.StopTimer()
 	size := 100
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -344,7 +344,7 @@ func BenchmarkDoublyLinkedListGet1000(b *testing.B) {
 	b.StopTimer()
 	size := 1000
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -355,7 +355,7 @@ func BenchmarkDoublyLinkedListGet10000(b *testing.B) {
 	b.StopTimer()
 	size := 10000
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -366,7 +366,7 @@ func BenchmarkDoublyLinkedListGet100000(b *testing.B) {
 	b.StopTimer()
 	size := 100000
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -385,7 +385,7 @@ func BenchmarkDoublyLinkedListAdd1000(b *testing.B) {
 	b.StopTimer()
 	size := 1000
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -396,7 +396,7 @@ func BenchmarkDoublyLinkedListAdd10000(b *testing.B) {
 	b.StopTimer()
 	size := 10000
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -407,7 +407,7 @@ func BenchmarkDoublyLinkedListAdd100000(b *testing.B) {
 	b.StopTimer()
 	size := 100000
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -418,7 +418,7 @@ func BenchmarkDoublyLinkedListRemove100(b *testing.B) {
 	b.StopTimer()
 	size := 100
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -429,7 +429,7 @@ func BenchmarkDoublyLinkedListRemove1000(b *testing.B) {
 	b.StopTimer()
 	size := 1000
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -440,7 +440,7 @@ func BenchmarkDoublyLinkedListRemove10000(b *testing.B) {
 	b.StopTimer()
 	size := 10000
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
@@ -451,7 +451,7 @@ func BenchmarkDoublyLinkedListRemove100000(b *testing.B) {
 	b.StopTimer()
 	size := 100000
 	list := New[int]()
-	for n := 0; n < size; n++ {
+	for n := range size {
 		list.Append(n)
 	}
 	b.StartTimer()
