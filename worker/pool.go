@@ -137,11 +137,7 @@ func (p *pool) run() {
 		case <-p.ctx.Done(): // Pool关闭
 			close(p.cache)
 			return
-		case v, ok := <-p.input:
-			if !ok || v == nil {
-				break
-			}
-
+		case v := <-p.input:
 			select {
 			case p.queue <- v:
 			default:
@@ -149,7 +145,6 @@ func (p *pool) run() {
 				if p.workers.Size() < p.capacity {
 					p.spawn()
 				}
-
 				// 等待闲置协程
 				select {
 				case p.queue <- v:
@@ -195,14 +190,10 @@ func (p *pool) spawn() {
 				return
 			case <-wk.ctx.Done(): // 闲置超时，销毁
 				return
-			case v, ok := <-p.queue: // 从队列获取任务
-				if ok && v != nil {
-					p.do(v)
-				}
-			case v, ok := <-p.cache: // 从缓存获取任务
-				if ok && v != nil {
-					p.do(v)
-				}
+			case v := <-p.queue: // 从队列获取任务
+				p.do(v)
+			case v := <-p.cache: // 从缓存获取任务
+				p.do(v)
 			}
 			wk.keepalive = time.Now()
 		}
@@ -210,9 +201,10 @@ func (p *pool) spawn() {
 }
 
 func (p *pool) do(task *task) {
-	if task == nil {
+	if task == nil || task.fn == nil {
 		return
 	}
+
 	defer func() {
 		if r := recover(); r != nil {
 			if p.panicFn != nil {
@@ -220,6 +212,7 @@ func (p *pool) do(task *task) {
 			}
 		}
 	}()
+
 	task.fn(task.ctx)
 }
 
