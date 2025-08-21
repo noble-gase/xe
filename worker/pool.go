@@ -115,7 +115,7 @@ func (p *pool) Go(ctx context.Context, fn func(ctx context.Context)) error {
 
 func (p *pool) Close() {
 	select {
-	case <-p.ctx.Done(): // Pool关闭
+	case <-p.ctx.Done(): // Pool已关闭
 		return
 	default:
 	}
@@ -123,73 +123,19 @@ func (p *pool) Close() {
 	// 销毁协程
 	p.cancel()
 
-	// 关闭通道
-	var wg sync.WaitGroup
-	wg.Add(3)
-	go func() {
-		defer wg.Done()
-		finish := false
-		for {
-			select {
-			case v, ok := <-p.input:
-				if ok && v != nil {
-					p.do(v)
-				}
-			default:
-				if finish {
-					close(p.input)
-					return
-				}
-				finish = true
-				time.Sleep(200 * time.Millisecond)
-			}
+	// 处理剩余的任务
+	for v := range p.cache {
+		if v != nil {
+			p.do(v)
 		}
-	}()
-	go func() {
-		defer wg.Done()
-		finish := false
-		for {
-			select {
-			case v, ok := <-p.queue:
-				if ok && v != nil {
-					p.do(v)
-				}
-			default:
-				if finish {
-					close(p.queue)
-					return
-				}
-				finish = true
-				time.Sleep(200 * time.Millisecond)
-			}
-		}
-	}()
-	go func() {
-		defer wg.Done()
-		finish := false
-		for {
-			select {
-			case v, ok := <-p.cache:
-				if ok && v != nil {
-					p.do(v)
-				}
-			default:
-				if finish {
-					close(p.cache)
-					return
-				}
-				finish = true
-				time.Sleep(200 * time.Millisecond)
-			}
-		}
-	}()
-	wg.Wait()
+	}
 }
 
 func (p *pool) run() {
 	for {
 		select {
 		case <-p.ctx.Done(): // Pool关闭
+			close(p.cache)
 			return
 		case v, ok := <-p.input:
 			if !ok || v == nil {
@@ -197,8 +143,6 @@ func (p *pool) run() {
 			}
 
 			select {
-			case <-p.ctx.Done(): // Pool关闭
-				return
 			case p.queue <- v:
 			default:
 				// 未达上限，新开一个协程
@@ -208,8 +152,6 @@ func (p *pool) run() {
 
 				// 等待闲置协程
 				select {
-				case <-p.ctx.Done(): // Pool关闭
-					return
 				case p.queue <- v:
 				case p.cache <- v:
 				}

@@ -2,6 +2,7 @@ package worker
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -171,5 +172,6 @@ func TestPoolClose(t *testing.T) {
 		})
 
 		time.Sleep(100 * time.Millisecond)
+		fmt.Println("---------")
 	}
 }

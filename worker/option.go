@@ -2,7 +2,7 @@ package worker
 
 import "time"
 
-// 协程池选项
+// Option 协程池选项
 type Option func(*pool)
 
 // WithPrefill 预填充协程数量
