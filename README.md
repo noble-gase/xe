@@ -30,8 +30,8 @@ go get -u github.com/noble-gase/xe
 
 ```shell
 goos: darwin
-goarch: amd64
-cpu: Intel(R) Core(TM) i5-1038NG7 CPU @ 2.00GHz
+goarch: arm64
+cpu: Apple M4
 ```
 
 ### 场景-1
@@ -55,11 +55,11 @@ func main() {
 
 #### cpu
 
-![cpu_1.png](example/cpu_1.png)
+![cpu-1.png](example/cpu-1.png)
 
 #### mem
 
-![mem_1.png](example/mem_1.png)
+![mem-1.png](example/mem-1.png)
 
 ### 场景-2
 
@@ -87,8 +87,8 @@ func main() {
 
 #### cpu
 
-![cpu_2.png](example/cpu_2.png)
+![cpu-2.png](example/cpu-2.png)
 
 #### mem
 
-![mem_2.png](example/mem_2.png)
+![mem-2.png](example/mem-2.png)
