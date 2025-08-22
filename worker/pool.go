@@ -5,9 +5,8 @@ import (
 	"errors"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"github.com/noble-gase/xe/internal/linklist"
 )
 
 const (
@@ -31,13 +30,6 @@ type Pool interface {
 // PanicFn 处理Panic方法
 type PanicFn func(ctx context.Context, err any, stack []byte)
 
-type worker struct {
-	keepalive time.Time
-
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
 type task struct {
 	ctx context.Context
 	fn  func(ctx context.Context)
@@ -52,7 +44,9 @@ type pool struct {
 
 	capacity int
 	prefill  int
-	workers  *linklist.DoublyLinkList[*worker]
+
+	uniqID  atomic.Int64
+	workers *WorkerLRU
 
 	idleTimeout time.Duration
 
@@ -74,7 +68,6 @@ func New(cap int, opts ...Option) Pool {
 		input: make(chan *task),
 
 		capacity: cap,
-		workers:  linklist.New[*worker](),
 
 		idleTimeout: defaultIdleTimeout,
 
@@ -87,6 +80,7 @@ func New(cap int, opts ...Option) Pool {
 	}
 	p.queue = make(chan *task)
 	p.cache = make(chan *task, p.cacheSize)
+	p.workers = NewWorkerLRU(max(p.prefill, 128))
 
 	// 预填充
 	if p.prefill > 0 {
@@ -124,9 +118,12 @@ func (p *pool) Close() {
 	p.cancel()
 
 	// 处理剩余的任务
-	for v := range p.cache {
-		if v != nil {
+	for {
+		select {
+		case v := <-p.cache:
 			p.do(v)
+		default:
+			return
 		}
 	}
 }
@@ -135,10 +132,11 @@ func (p *pool) run() {
 	for {
 		select {
 		case <-p.ctx.Done(): // Pool关闭
-			close(p.cache)
 			return
 		case v := <-p.input:
 			select {
+			case <-p.ctx.Done(): // Pool关闭
+				return
 			case p.queue <- v:
 			default:
 				// 未达上限，新开一个协程
@@ -147,6 +145,8 @@ func (p *pool) run() {
 				}
 				// 等待闲置协程
 				select {
+				case <-p.ctx.Done(): // Pool关闭
+					return
 				case p.queue <- v:
 				case p.cache <- v:
 				}
@@ -156,7 +156,7 @@ func (p *pool) run() {
 }
 
 func (p *pool) idle() {
-	ticker := time.NewTicker(p.idleTimeout / 10)
+	ticker := time.NewTicker(max(time.Minute, p.idleTimeout/10))
 	defer ticker.Stop()
 
 	for {
@@ -164,23 +164,18 @@ func (p *pool) idle() {
 		case <-p.ctx.Done(): // Pool关闭
 			return
 		case <-ticker.C:
-			idles := p.workers.Filter(func(index int, value *worker) bool {
-				return time.Since(value.keepalive) > p.idleTimeout
-			})
-			for _, wk := range idles {
-				wk.cancel()
-			}
+			p.workers.IdleCheck(p.idleTimeout)
 		}
 	}
 }
 
 func (p *pool) spawn() {
 	wk := &worker{
-		keepalive: time.Now(),
+		id: p.uniqID.Add(1),
 	}
 	wk.ctx, wk.cancel = context.WithCancel(context.TODO())
-	// 存储协程信息
-	p.workers.Append(wk)
+
+	p.workers.Add(wk)
 
 	go func() {
 		for {
@@ -191,11 +186,12 @@ func (p *pool) spawn() {
 			case <-wk.ctx.Done(): // 闲置超时，销毁
 				return
 			case v := <-p.queue: // 从队列获取任务
+				p.workers.Add(wk)
 				p.do(v)
 			case v := <-p.cache: // 从缓存获取任务
+				p.workers.Add(wk)
 				p.do(v)
 			}
-			wk.keepalive = time.Now()
 		}
 	}()
 }

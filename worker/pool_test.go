@@ -137,6 +137,36 @@ func TestBlockTimeout(t *testing.T) {
 	time.Sleep(10 * time.Second)
 }
 
+// go test -race -run ^TestPoolRace$
+// idle() 中 time.NewTicker(time.Second)
+func TestPoolRace(t *testing.T) {
+	p := New(10, WithIdleTimeout(time.Second))
+	defer p.Close()
+
+	var wg sync.WaitGroup
+	for range 100 {
+		wg.Add(1)
+		_ = p.Go(context.Background(), func(ctx context.Context) {
+			time.Sleep(10 * time.Millisecond)
+		})
+		wg.Done()
+	}
+	wg.Add(1)
+	go func(p Pool) {
+		defer wg.Done()
+
+		v := p.(*pool)
+		for {
+			t.Log(v.workers.Size())
+			if v.workers.Size() == 0 {
+				return
+			}
+			time.Sleep(time.Second)
+		}
+	}(p)
+	wg.Wait()
+}
+
 func TestPoolClose(t *testing.T) {
 	ctx := context.Background()
 

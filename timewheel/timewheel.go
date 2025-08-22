@@ -3,22 +3,21 @@ package timewheel
 import (
 	"context"
 	"runtime/debug"
-	"strings"
+	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/noble-gase/xe/internal/linklist"
+	"github.com/noble-gase/xe/worker"
 )
 
 type (
 	// TaskFn 任务方法，返回下一次执行的延迟时间；若返回0，则表示不再执行
-	TaskFn func(ctx context.Context, taskId string, attempts int64) time.Duration
+	TaskFn func(ctx context.Context, task *Task) time.Duration
 
-	// CtxErrFn 任务 context「取消/超时」的处理方法
-	CtxErrFn func(ctx context.Context, taskId string, err error)
+	// CtxDoneFn 任务 context「取消/超时」的处理方法
+	CtxDoneFn func(ctx context.Context, task *Task)
 
 	// PanicFn 任务发生Panic的处理方法
-	PanicFn func(ctx context.Context, taskId string, err any, stack []byte)
+	PanicFn func(ctx context.Context, task *Task, err any, stack []byte)
 )
 
 // TimeWheel 单层时间轮
@@ -26,22 +25,10 @@ type TimeWheel interface {
 	// Go 异步一个任务并返回任务ID；
 	// 注意：任务是异步执行的，`ctx`一旦被取消/超时，则任务也随之取消；
 	// 如要保证任务不被取消，请使用`context.WithoutCancel`
-	Go(ctx context.Context, taskFn TaskFn, delay time.Duration) string
+	Go(ctx context.Context, taskFn TaskFn, delay time.Duration) *Task
 
 	// Stop 终止时间轮
 	Stop()
-}
-
-type task struct {
-	id string // 任务ID
-
-	callback TaskFn // 任务执行函数
-	attempts int64  // 当前任务执行的次数
-
-	round int           // 延迟执行的轮数
-	delay time.Duration // 任务执行前的剩余延迟（小于时间轮精度）
-
-	ctx context.Context
 }
 
 type timewheel struct {
@@ -49,24 +36,28 @@ type timewheel struct {
 	size int
 	tick time.Duration
 
-	bucket []*linklist.DoublyLinkList[*task]
+	uniqID  atomic.Int64
+	buckets []*Bucket
 
-	ctxErrFn CtxErrFn // Ctx Done 处理函数
-	panicFn  PanicFn  // Panic处理函数
+	ctxDoneFn CtxDoneFn // Ctx Done 处理函数
+	panicFn   PanicFn   // Panic处理函数
+
+	pool worker.Pool
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
-func (tw *timewheel) Go(ctx context.Context, taskFn TaskFn, delay time.Duration) string {
-	id := strings.ReplaceAll(uuid.New().String(), "-", "")
-	t := &task{
-		id:       id,
+func (tw *timewheel) Go(ctx context.Context, taskFn TaskFn, delay time.Duration) *Task {
+	t := &Task{
+		id:       tw.uniqID.Add(1),
 		callback: taskFn,
-		ctx:      ctx,
 	}
+	t.ctx, t.cancel = context.WithCancel(ctx)
+
 	tw.requeue(t, delay)
-	return id
+
+	return t
 }
 
 func (tw *timewheel) Stop() {
@@ -75,10 +66,12 @@ func (tw *timewheel) Stop() {
 		return
 	default:
 	}
+
 	tw.cancel()
+	tw.pool.Close()
 }
 
-func (tw *timewheel) requeue(t *task, duration time.Duration) {
+func (tw *timewheel) requeue(t *Task, duration time.Duration) {
 	select {
 	case <-tw.ctx.Done(): // 时间轮已停止
 		return
@@ -96,15 +89,16 @@ func (tw *timewheel) requeue(t *task, duration time.Duration) {
 	if slot == tw.slot {
 		if t.round == 0 {
 			t.delay = duration
-			go tw.do(t)
+			tw.do(t)
 			return
 		}
 		t.round--
 	}
+	t.slot = slot
 	// 剩余延迟
 	t.delay = time.Duration(nanosec % tick)
 	// 存储任务
-	tw.bucket[slot].Append(t)
+	tw.buckets[slot].Add(t)
 }
 
 func (tw *timewheel) scheduler() {
@@ -123,43 +117,78 @@ func (tw *timewheel) scheduler() {
 }
 
 func (tw *timewheel) process(slot int) {
-	tasks := tw.bucket[slot].Filter(func(index int, value *task) bool {
-		if value.round > 0 {
-			value.round--
-			return false
-		}
-		return true
-	})
-	for _, t := range tasks {
-		go tw.do(t)
-	}
-}
+	taskList := tw.buckets[slot].Reset()
 
-func (tw *timewheel) do(t *task) {
-	defer func() {
-		if err := recover(); err != nil {
-			if tw.panicFn != nil {
-				tw.panicFn(t.ctx, t.id, err, debug.Stack())
+	go func() {
+		defer func() {
+			taskList.Init()
+			listPool.Put(taskList)
+		}()
+
+		for e := taskList.Front(); e != nil; e = e.Next() {
+			t := e.Value.(*Task)
+			if t.round <= 0 {
+				tw.do(t)
+			} else {
+				t.round--
+				tw.buckets[slot].Add(t)
 			}
 		}
 	}()
+}
 
-	if t.delay > 0 {
-		time.Sleep(t.delay)
-	}
-
+func (tw *timewheel) do(t *Task) {
 	select {
 	case <-tw.ctx.Done(): // 时间轮停止
+		return
 	case <-t.ctx.Done(): // 任务被取消
-		if tw.ctxErrFn != nil {
-			tw.ctxErrFn(t.ctx, t.id, t.ctx.Err())
+		if tw.ctxDoneFn != nil {
+			tw.ctxDoneFn(t.ctx, t)
 		}
+		return
 	default:
-		duration := t.callback(t.ctx, t.id, t.attempts)
+	}
+
+	_ = tw.pool.Go(t.ctx, func(ctx context.Context) {
+		select {
+		case <-tw.ctx.Done(): // 时间轮停止
+			return
+		case <-ctx.Done(): // 任务被取消
+			if tw.ctxDoneFn != nil {
+				tw.ctxDoneFn(ctx, t)
+			}
+			return
+		default:
+		}
+
+		if t.delay > 0 {
+			time.Sleep(t.delay)
+
+			select {
+			case <-tw.ctx.Done(): // 时间轮停止
+				return
+			case <-ctx.Done(): // 任务被取消
+				if tw.ctxDoneFn != nil {
+					tw.ctxDoneFn(ctx, t)
+				}
+				return
+			default:
+			}
+		}
+
+		if tw.panicFn != nil {
+			defer func() {
+				if err := recover(); err != nil {
+					tw.panicFn(t.ctx, t, err, debug.Stack())
+				}
+			}()
+		}
+
+		duration := t.callback(ctx, t)
 		if duration > 0 {
 			tw.requeue(t, duration)
 		}
-	}
+	})
 }
 
 // New 返回一个时间轮实例
@@ -169,7 +198,7 @@ func New(size int, tick time.Duration, opts ...Option) TimeWheel {
 		size: size,
 		tick: tick,
 
-		bucket: make([]*linklist.DoublyLinkList[*task], size),
+		buckets: make([]*Bucket, size),
 
 		ctx:    ctx,
 		cancel: cancel,
@@ -178,7 +207,10 @@ func New(size int, tick time.Duration, opts ...Option) TimeWheel {
 		fn(tw)
 	}
 	for i := range size {
-		tw.bucket[i] = linklist.New[*task]()
+		tw.buckets[i] = NewBucket()
+	}
+	if tw.pool == nil {
+		tw.pool = worker.New(2000, worker.WithCacheSize(100))
 	}
 
 	go tw.scheduler()
