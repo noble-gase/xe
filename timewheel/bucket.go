@@ -19,9 +19,10 @@ type Task struct {
 	callback TaskFn // 任务执行函数
 	attempts int    // 当前任务执行的次数
 
-	slot  int           // 时间轮槽位
-	round int           // 延迟执行的轮数
-	delay time.Duration // 任务执行前的剩余延迟（小于时间轮精度）
+	slot int // 时间轮槽位
+
+	execTime  time.Time // 任务执行时间
+	execDelay time.Duration
 
 	ctx    context.Context
 	cancel context.CancelFunc

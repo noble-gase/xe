@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -165,6 +166,7 @@ func (p *pool) idle() {
 			return
 		case <-ticker.C:
 			p.workers.IdleCheck(p.idleTimeout)
+			fmt.Println("--- idle ---", p.workers.Size())
 		}
 	}
 }
@@ -175,7 +177,7 @@ func (p *pool) spawn() {
 	}
 	wk.ctx, wk.cancel = context.WithCancel(context.TODO())
 
-	p.workers.Add(wk)
+	p.workers.Upsert(wk)
 
 	go func() {
 		for {
@@ -186,10 +188,10 @@ func (p *pool) spawn() {
 			case <-wk.ctx.Done(): // 闲置超时，销毁
 				return
 			case v := <-p.queue: // 从队列获取任务
-				p.workers.Add(wk)
+				p.workers.Upsert(wk)
 				p.do(v)
 			case v := <-p.cache: // 从缓存获取任务
-				p.workers.Add(wk)
+				p.workers.Upsert(wk)
 				p.do(v)
 			}
 		}

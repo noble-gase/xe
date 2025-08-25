@@ -23,7 +23,7 @@ type WorkerLRU struct {
 	mutex sync.RWMutex
 }
 
-func (lru *WorkerLRU) Add(w *worker) {
+func (lru *WorkerLRU) Upsert(w *worker) {
 	lru.mutex.Lock()
 	defer lru.mutex.Unlock()
 
@@ -34,13 +34,6 @@ func (lru *WorkerLRU) Add(w *worker) {
 		return
 	}
 	lru.wkMap[w.id] = lru.wkList.PushFront(w)
-}
-
-func (lru *WorkerLRU) Size() int {
-	lru.mutex.RLock()
-	defer lru.mutex.RUnlock()
-
-	return lru.wkList.Len()
 }
 
 func (lru *WorkerLRU) IdleCheck(timeout time.Duration) {
@@ -58,6 +51,13 @@ func (lru *WorkerLRU) IdleCheck(timeout time.Duration) {
 		delete(lru.wkMap, w.id)
 		w.cancel()
 	}
+}
+
+func (lru *WorkerLRU) Size() int {
+	lru.mutex.RLock()
+	defer lru.mutex.RUnlock()
+
+	return lru.wkList.Len()
 }
 
 func NewWorkerLRU(initCap int) *WorkerLRU {

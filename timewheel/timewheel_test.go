@@ -3,7 +3,6 @@ package timewheel
 import (
 	"context"
 	"fmt"
-	"math"
 	"testing"
 	"time"
 )
@@ -15,74 +14,87 @@ func TestTimeWheel(t *testing.T) {
 	ch := make(chan string)
 	defer close(ch)
 
-	tw := New(7, time.Second)
+	tw := New(7)
 	defer tw.Stop()
 
 	addedAt := time.Now()
 
+	fmt.Println("===========", "[now]", addedAt.Format(time.DateTime), "======================")
+
+	// 立即执行
 	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task[%d][%d] run after %ds", task.ID(), task.Attempts(), int64(math.Round(time.Since(addedAt).Seconds())))
-		if task.Attempts() >= 10 {
+		ch <- fmt.Sprintf("task-%d [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+		return 0
+	}, time.Now())
+
+	// 精度 < 1s，延迟 1s 执行
+	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
+		ch <- fmt.Sprintf("task-%d [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+		return 0
+	}, time.Now().Add(200*time.Millisecond))
+
+	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
+		ch <- fmt.Sprintf("task-%d [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+		if task.Attempts() >= 9 {
 			return 0
 		}
-		if task.Attempts()%2 == 0 {
+		if (task.Attempts()+1)%2 == 0 {
 			return time.Second * 2
 		}
 		return time.Second
-	}, time.Second)
+	}, time.Now().Add(time.Second))
 
-	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task[%d][%d] run after %ds", task.ID(), task.Attempts(), int64(math.Round(time.Since(addedAt).Seconds())))
-		if task.Attempts() >= 5 {
-			return 0
-		}
-		return time.Second * 2
-	}, time.Second*2)
-
-	for range 15 {
-		t.Log(<-ch)
+	for range 11 {
+		fmt.Println(<-ch)
 	}
 }
 
 func TestTaskCancel(t *testing.T) {
 	ctx := context.Background()
 
-	tw := New(5, time.Second, WithCtxDoneFn(func(ctx context.Context, task *Task) {
-		fmt.Println("task", task.ID(), "canceled")
+	ch := make(chan string)
+	defer close(ch)
+
+	tw := New(5, WithCancelFn(func(ctx context.Context, task *Task) {
+		ch <- fmt.Sprintf("task-%d canceled", task.ID())
 	}))
 	defer tw.Stop()
 
 	addedAt := time.Now()
 
+	fmt.Println("=======", "[now]", addedAt.Format(time.DateTime), "======================")
+
 	task := tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		fmt.Println("task", task.ID(), "done")
+		ch <- fmt.Sprintf("task-%d done", task.ID())
 		return 0
-	}, 2*time.Second)
+	}, time.Now().Add(2*time.Second))
 	task.Cancel()
 
 	_ = tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		fmt.Println("task", task.ID(), "done after", time.Since(addedAt).String())
+		ch <- fmt.Sprintf("task-%d run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
-	}, 6*time.Second)
+	}, time.Now().Add(6*time.Second))
 
 	_ = tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		fmt.Println("task", task.ID(), "done after", time.Since(addedAt).String())
+		ch <- fmt.Sprintf("task-%d run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
-	}, 7*time.Second)
+	}, time.Now().Add(7*time.Second))
 
 	_ = tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		fmt.Println("task", task.ID(), "done after", time.Since(addedAt).String())
+		ch <- fmt.Sprintf("task-%d run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
-	}, 8*time.Second)
+	}, time.Now().Add(8*time.Second))
 
-	time.Sleep(10 * time.Second)
+	for range 4 {
+		fmt.Println(<-ch)
+	}
 }
 
 // TestCtxDone 测试任务context done
 func TestCtxDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	tw := New(7, time.Second, WithCtxDoneFn(func(ctx context.Context, task *Task) {
+	tw := New(7, WithCancelFn(func(ctx context.Context, task *Task) {
 		fmt.Println("[task]", task.ID())
 		fmt.Println("[error]", ctx.Err())
 		cancel()
@@ -96,7 +108,7 @@ func TestCtxDone(t *testing.T) {
 	tw.Go(taskCtx, func(ctx context.Context, task *Task) time.Duration {
 		fmt.Println("task run after", time.Since(addedAt).String())
 		return 0
-	}, time.Second)
+	}, time.Now().Add(time.Second))
 
 	<-ctx.Done()
 }
@@ -105,7 +117,7 @@ func TestCtxDone(t *testing.T) {
 func TestPanic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	tw := New(7, time.Second, WithPanicFn(func(ctx context.Context, task *Task, err any, stack []byte) {
+	tw := New(7, WithPanicFn(func(ctx context.Context, task *Task, err any, stack []byte) {
 		fmt.Println("[task]", task.ID())
 		fmt.Println("[error]", err)
 		fmt.Println("[stack]", string(stack))
@@ -118,7 +130,7 @@ func TestPanic(t *testing.T) {
 	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
 		fmt.Println("task run after", time.Since(addedAt).String())
 		panic("oh no!")
-	}, time.Second)
+	}, time.Now().Add(time.Second))
 
 	<-ctx.Done()
 }
