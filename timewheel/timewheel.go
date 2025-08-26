@@ -11,21 +11,20 @@ import (
 )
 
 type (
-	// TaskFn 任务方法，返回下一次执行的延迟时间；若返回0，则表示不再执行
+	// TaskFn 任务方法，返回下一次执行的延迟时间 (<=0 表示不再执行)
 	TaskFn func(ctx context.Context, task *Task) time.Duration
 
-	// CancelFn 任务 context「取消/超时」的处理方法
+	// CancelFn 任务 context「取消｜超时」的处理方法
 	CancelFn func(ctx context.Context, task *Task)
 
-	// PanicFn 任务发生Panic的处理方法
+	// PanicFn 任务发生 panic 的处理方法
 	PanicFn func(ctx context.Context, task *Task, err any, stack []byte)
 )
 
 // TimeWheel 时间轮
 type TimeWheel interface {
 	// Go 异步一个任务并返回任务ID；
-	// 注意：任务是异步执行的，若 context 取消 / 超时，则任务也随之取消；
-	// 如要保证任务不被取消，请使用`context.WithoutCancel`
+	// 注意：任务是异步执行的，若 context 取消｜超时，则任务也随之取消
 	Go(ctx context.Context, taskFn TaskFn, execTime time.Time) *Task
 
 	// Stop 终止时间轮
