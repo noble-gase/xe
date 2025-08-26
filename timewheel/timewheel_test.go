@@ -14,12 +14,12 @@ func TestTimeWheel(t *testing.T) {
 	ch := make(chan string)
 	defer close(ch)
 
-	tw := New(7)
+	tw := New()
 	defer tw.Stop()
 
 	addedAt := time.Now()
 
-	fmt.Println("===========", "[now]", addedAt.Format(time.DateTime), "======================")
+	fmt.Println("===========", "[now]", addedAt.Format(time.DateTime), "===========")
 
 	// 立即执行
 	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
@@ -55,14 +55,14 @@ func TestTaskCancel(t *testing.T) {
 	ch := make(chan string)
 	defer close(ch)
 
-	tw := New(5, WithCancelFn(func(ctx context.Context, task *Task) {
+	tw := New(WithCancelFn(func(ctx context.Context, task *Task) {
 		ch <- fmt.Sprintf("task-%d canceled", task.ID())
 	}))
 	defer tw.Stop()
 
 	addedAt := time.Now()
 
-	fmt.Println("=======", "[now]", addedAt.Format(time.DateTime), "======================")
+	fmt.Println("=======", "[now]", addedAt.Format(time.DateTime), "=======")
 
 	task := tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("task-%d done", task.ID())
@@ -94,7 +94,7 @@ func TestTaskCancel(t *testing.T) {
 func TestCtxDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	tw := New(7, WithCancelFn(func(ctx context.Context, task *Task) {
+	tw := New(WithCancelFn(func(ctx context.Context, task *Task) {
 		fmt.Println("[task]", task.ID())
 		fmt.Println("[error]", ctx.Err())
 		cancel()
@@ -117,7 +117,7 @@ func TestCtxDone(t *testing.T) {
 func TestPanic(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	tw := New(7, WithPanicFn(func(ctx context.Context, task *Task, err any, stack []byte) {
+	tw := New(WithPanicFn(func(ctx context.Context, task *Task, err any, stack []byte) {
 		fmt.Println("[task]", task.ID())
 		fmt.Println("[error]", err)
 		fmt.Println("[stack]", string(stack))

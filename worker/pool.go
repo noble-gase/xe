@@ -3,7 +3,6 @@ package worker
 import (
 	"context"
 	"errors"
-	"fmt"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
@@ -166,7 +165,6 @@ func (p *pool) idle() {
 			return
 		case <-ticker.C:
 			p.workers.IdleCheck(p.idleTimeout)
-			fmt.Println("--- idle ---", p.workers.Size())
 		}
 	}
 }

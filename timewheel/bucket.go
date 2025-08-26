@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -13,29 +14,30 @@ var listPool = sync.Pool{
 	},
 }
 
+// Task 任务
 type Task struct {
 	id int64 // 任务ID
 
-	callback TaskFn // 任务执行函数
-	attempts int    // 当前任务执行的次数
+	execFunc TaskFn    // 任务执行函数
+	execTime time.Time // 任务执行时间
 
-	slot int // 时间轮槽位
-
-	execTime  time.Time // 任务执行时间
-	execDelay time.Duration
+	attempts atomic.Int32 // 当前任务执行的次数
 
 	ctx    context.Context
 	cancel context.CancelFunc
 }
 
+// ID 返回任务ID
 func (t *Task) ID() int64 {
 	return t.id
 }
 
+// Attempts 返回任务执行的次数
 func (t *Task) Attempts() int {
-	return t.attempts
+	return int(t.attempts.Load())
 }
 
+// Cancel 取消任务
 func (t *Task) Cancel() {
 	t.cancel()
 }

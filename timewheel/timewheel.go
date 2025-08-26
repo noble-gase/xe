@@ -3,6 +3,7 @@ package timewheel
 import (
 	"context"
 	"runtime/debug"
+	"sort"
 	"sync/atomic"
 	"time"
 
@@ -20,7 +21,7 @@ type (
 	PanicFn func(ctx context.Context, task *Task, err any, stack []byte)
 )
 
-// TimeWheel 单层「秒级」时间轮
+// TimeWheel 时间轮
 type TimeWheel interface {
 	// Go 异步一个任务并返回任务ID；
 	// 注意：任务是异步执行的，若 context 取消 / 超时，则任务也随之取消；
@@ -31,16 +32,31 @@ type TimeWheel interface {
 	Stop()
 }
 
-type timewheel struct {
-	size int
-	tick time.Duration
+type TimeLevel struct {
+	size  int
+	prec  time.Duration
+	round time.Duration // 时间轮时长
 
-	duration time.Duration // 时间轮时长
+	slot atomic.Int32 // 当前槽位
 
-	slot int // 当前槽位
+	isMin bool // 是否是最小精度
 
-	uniqID  atomic.Int64
 	buckets []*Bucket
+}
+
+func Level(size int, prec time.Duration) *TimeLevel {
+	return &TimeLevel{
+		size:    size,
+		prec:    prec,
+		round:   prec * time.Duration(size),
+		buckets: make([]*Bucket, size),
+	}
+}
+
+type timewheel struct {
+	uniqID atomic.Int64
+
+	levels []*TimeLevel
 
 	cancelFn CancelFn // Ctx Done 处理函数
 	panicFn  PanicFn  // Panic处理函数
@@ -53,10 +69,10 @@ type timewheel struct {
 
 func (tw *timewheel) Go(ctx context.Context, taskFn TaskFn, execTime time.Time) *Task {
 	task := &Task{
-		id:        tw.uniqID.Add(1),
-		callback:  taskFn,
-		execTime:  execTime,
-		execDelay: time.Until(execTime),
+		id: tw.uniqID.Add(1),
+
+		execFunc: taskFn,
+		execTime: execTime,
 	}
 	task.ctx, task.cancel = context.WithCancel(ctx)
 
@@ -84,40 +100,52 @@ func (tw *timewheel) requeue(task *Task) {
 	default:
 	}
 
-	task.attempts++
-
-	// 槽位 (task.execDelay+tw.tick-1 向上取整技巧，避免浮点数计算)
-	slot := (int((task.execDelay+tw.tick-1)/tw.tick)%tw.size + tw.slot) % tw.size
-	task.slot = slot
-
-	if slot == tw.slot {
-		if task.execDelay < tw.duration {
-			tw.do(task)
-		}
+	delay := time.Until(task.execTime)
+	if delay <= 0 {
+		tw.do(task)
 		return
 	}
 
-	// 存储任务
-	tw.buckets[slot].Add(task)
+	var tl *TimeLevel
+	for _, tl = range tw.levels {
+		if delay > tl.prec {
+			break
+		}
+	}
+
+	var mod int
+	if tl.isMin {
+		mod = int((delay + tl.prec - 1) / tl.prec)
+	} else {
+		mod = int(delay / tl.prec)
+	}
+	slot := (mod%tl.size + int(tl.slot.Load())) % tl.size
+
+	tl.buckets[slot].Add(task)
 }
 
 func (tw *timewheel) scheduler() {
-	ticker := time.NewTicker(tw.tick)
-	defer ticker.Stop()
+	for _, v := range tw.levels {
+		go func(tl *TimeLevel) {
+			ticker := time.NewTicker(tl.prec)
+			defer ticker.Stop()
 
-	for {
-		select {
-		case <-tw.ctx.Done(): // 时间轮已停止
-			return
-		case <-ticker.C:
-			tw.slot = (tw.slot + 1) % tw.size
-			tw.process(tw.slot)
-		}
+			for {
+				select {
+				case <-tw.ctx.Done(): // 时间轮已停止
+					return
+				case <-ticker.C:
+					slot := (int(tl.slot.Load()) + 1) % tl.size
+					tl.slot.Store(int32(slot))
+					tw.process(tl, slot)
+				}
+			}
+		}(v)
 	}
 }
 
-func (tw *timewheel) process(slot int) {
-	taskList := tw.buckets[slot].Reset()
+func (tw *timewheel) process(tl *TimeLevel, slot int) {
+	taskList := tl.buckets[slot].Reset()
 
 	go func() {
 		defer func() {
@@ -127,10 +155,14 @@ func (tw *timewheel) process(slot int) {
 
 		for e := taskList.Front(); e != nil; e = e.Next() {
 			task := e.Value.(*Task)
-			if time.Until(task.execTime) < tw.duration {
-				tw.do(task)
+			if delay := time.Until(task.execTime); delay < tl.round {
+				if tl.isMin {
+					tw.do(task)
+				} else {
+					tw.requeue(task)
+				}
 			} else {
-				tw.buckets[slot].Add(task)
+				tl.buckets[slot].Add(task)
 			}
 		}
 	}()
@@ -149,6 +181,18 @@ func (tw *timewheel) do(task *Task) {
 	}
 
 	_ = tw.pool.Go(task.ctx, func(ctx context.Context) {
+		if tw.panicFn != nil {
+			defer func() {
+				if err := recover(); err != nil {
+					tw.panicFn(task.ctx, task, err, debug.Stack())
+				}
+			}()
+		}
+
+		if d := time.Until(task.execTime); d > 0 {
+			time.Sleep(d)
+		}
+
 		select {
 		case <-tw.ctx.Done(): // 时间轮停止
 			return
@@ -160,44 +204,50 @@ func (tw *timewheel) do(task *Task) {
 		default:
 		}
 
-		if tw.panicFn != nil {
-			defer func() {
-				if err := recover(); err != nil {
-					tw.panicFn(task.ctx, task, err, debug.Stack())
-				}
-			}()
-		}
+		task.attempts.Add(1)
 
-		duration := task.callback(ctx, task)
-		if duration > 0 {
-			task.execTime = task.execTime.Add(duration)
+		if d := task.execFunc(ctx, task); d > 0 {
+			task.execTime = task.execTime.Add(d)
 			tw.requeue(task)
 		}
 	})
 }
 
-// New 返回一个「秒级」时间轮实例
-func New(size int, opts ...Option) TimeWheel {
+// New 返回一个时间轮
+func New(opts ...Option) TimeWheel {
 	ctx, cancel := context.WithCancel(context.TODO())
+
 	tw := &timewheel{
-		size: size,
-		tick: time.Second,
-
-		duration: time.Second * time.Duration(size),
-
-		buckets: make([]*Bucket, size),
-
 		ctx:    ctx,
 		cancel: cancel,
 	}
 	for _, fn := range opts {
 		fn(tw)
 	}
-	for i := range size {
-		tw.buckets[i] = NewBucket()
-	}
 	if tw.pool == nil {
 		tw.pool = worker.New(2000, worker.WithCacheSize(100))
+	}
+	if len(tw.levels) == 0 {
+		tw.levels = []*TimeLevel{
+			Level(24, time.Hour),   // 24小时
+			Level(60, time.Minute), // 60分钟
+			Level(60, time.Second), // 60秒
+		}
+	}
+
+	// 层级排序
+	sort.SliceStable(tw.levels, func(i, j int) bool {
+		return tw.levels[i].prec > tw.levels[j].prec
+	})
+
+	// 最小精度
+	tw.levels[len(tw.levels)-1].isMin = true
+
+	// 初始化槽位
+	for _, v := range tw.levels {
+		for i := range v.size {
+			v.buckets[i] = NewBucket()
+		}
 	}
 
 	go tw.scheduler()
