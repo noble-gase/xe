@@ -28,7 +28,7 @@ func WithWorkerPool(pool worker.Pool) Option {
 	}
 }
 
-// WithTimeLevel 指定时间轮层级；默认：3层，每层精度依次为：小时、分钟、秒
+// WithTimeLevel 指定时间轮层级；默认：3层，精度分别为：时、分、秒
 func WithTimeLevel(levels ...*TimeLevel) Option {
 	return func(tw *timewheel) {
 		tw.levels = append(tw.levels, levels...)
