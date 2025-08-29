@@ -8,7 +8,7 @@ import (
 )
 
 // A ErrGroup is a collection of goroutines working on subtasks that are part of
-// the same overall task.
+// the same overall task. A ErrGroup should not be reused for different tasks.
 //
 // A zero Group is valid, has no limit on the number of active goroutines,
 // and does not cancel on error. use WithContext instead.
@@ -72,6 +72,7 @@ func (g *group) Go(fn func(ctx context.Context) error) {
 	default:
 		if g.remain > 0 {
 			g.spawn()
+			g.remain--
 		}
 		select {
 		case g.ch <- fn:
@@ -97,6 +98,7 @@ func (g *group) Wait() error {
 		for _, fn := range g.cache {
 			g.ch <- fn
 		}
+		g.cache = nil
 	}
 	g.wg.Wait()
 
@@ -109,7 +111,6 @@ func (g *group) spawn() {
 			g.do(fn)
 		}
 	}()
-	g.remain--
 }
 
 func (g *group) do(fn func(ctx context.Context) error) {
