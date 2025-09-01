@@ -80,7 +80,7 @@ func New(cap int, opts ...Option) Pool {
 	}
 	p.queue = make(chan *task)
 	p.cache = make(chan *task, p.cacheSize)
-	p.workers = NewWorkerLRU(max(p.prefill, 128))
+	p.workers = NewWorkerLRU()
 
 	// 预填充
 	if p.prefill > 0 {

@@ -29,7 +29,7 @@ func (lru *WorkerLRU) Upsert(w *worker) {
 
 	w.keepalive.Store(time.Now().UnixNano())
 
-	// 存在，移动到头部
+	// 存在，移到头部
 	if e, ok := lru.wkMap[w.id]; ok {
 		lru.wkList.MoveToFront(e)
 		return
@@ -64,9 +64,9 @@ func (lru *WorkerLRU) Size() int {
 	return int(lru.size.Load())
 }
 
-func NewWorkerLRU(initCap int) *WorkerLRU {
+func NewWorkerLRU() *WorkerLRU {
 	return &WorkerLRU{
-		wkMap:  make(map[int64]*list.Element, initCap),
+		wkMap:  make(map[int64]*list.Element),
 		wkList: list.New(),
 	}
 }
