@@ -19,8 +19,8 @@ type worker struct {
 type WorkerLRU struct {
 	wkMap  map[int64]*list.Element
 	wkList *list.List
-
-	mutex sync.RWMutex
+	size   atomic.Int32
+	mutex  sync.Mutex
 }
 
 func (lru *WorkerLRU) Upsert(w *worker) {
@@ -29,35 +29,39 @@ func (lru *WorkerLRU) Upsert(w *worker) {
 
 	w.keepalive.Store(time.Now().UnixNano())
 
+	// 存在，移动到头部
 	if e, ok := lru.wkMap[w.id]; ok {
 		lru.wkList.MoveToFront(e)
 		return
 	}
+
 	lru.wkMap[w.id] = lru.wkList.PushFront(w)
+	lru.size.Store(int32(lru.wkList.Len()))
 }
 
 func (lru *WorkerLRU) IdleCheck(timeout time.Duration) {
 	lru.mutex.Lock()
 	defer lru.mutex.Unlock()
 
+	now := time.Now().UnixNano()
 	for e := lru.wkList.Back(); e != nil; e = e.Prev() {
 		w := e.Value.(*worker)
+
 		// 未超时，直接结束
-		if time.Now().UnixNano()-w.keepalive.Load() <= timeout.Nanoseconds() {
+		if now-w.keepalive.Load() <= timeout.Nanoseconds() {
 			return
 		}
+
 		// 超时，移除并关闭协程
 		lru.wkList.Remove(e)
 		delete(lru.wkMap, w.id)
 		w.cancel()
 	}
+	lru.size.Store(int32(lru.wkList.Len()))
 }
 
 func (lru *WorkerLRU) Size() int {
-	lru.mutex.RLock()
-	defer lru.mutex.RUnlock()
-
-	return lru.wkList.Len()
+	return int(lru.size.Load())
 }
 
 func NewWorkerLRU(initCap int) *WorkerLRU {
