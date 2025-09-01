@@ -27,7 +27,7 @@ func TestTimeWheel(t *testing.T) {
 		return 0
 	}, time.Now())
 
-	// 精度 < 1s，延迟 1s 执行
+	// 精度 < 1s，延迟到 1s 执行
 	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("task-%d [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0

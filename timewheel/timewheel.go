@@ -147,11 +147,6 @@ func (tw *timewheel) process(tl *TimeLevel, slot int) {
 	taskList := tl.buckets[slot].Reset()
 
 	go func() {
-		defer func() {
-			taskList.Init()
-			listPool.Put(taskList)
-		}()
-
 		for e := taskList.Front(); e != nil; e = e.Next() {
 			task := e.Value.(*Task)
 			if delay := time.Until(task.execTime); delay < tl.round {

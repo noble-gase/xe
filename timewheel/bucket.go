@@ -8,12 +8,6 @@ import (
 	"time"
 )
 
-var listPool = sync.Pool{
-	New: func() any {
-		return list.New()
-	},
-}
-
 // Task 任务
 type Task struct {
 	id int64 // 任务ID
@@ -52,9 +46,7 @@ func (b *Bucket) Add(t *Task) {
 	defer b.mutex.Unlock()
 
 	if b.list == nil {
-		l := listPool.Get().(*list.List)
-		l.Init()
-		b.list = l
+		b.list = list.New()
 	}
 	b.list.PushBack(t)
 }
@@ -64,11 +56,7 @@ func (b *Bucket) Reset() *list.List {
 	defer b.mutex.Unlock()
 
 	old := b.list
-
-	new := listPool.Get().(*list.List)
-	new.Init()
-	b.list = new
-
+	b.list = list.New()
 	return old
 }
 
