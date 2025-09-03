@@ -57,8 +57,8 @@ type timewheel struct {
 
 	levels []*TimeLevel
 
-	cancelFn CancelFn // Ctx Done 处理函数
-	panicFn  PanicFn  // Panic处理函数
+	cancelFn CancelFn // ctx done 处理函数
+	panicFn  PanicFn  // panic 处理函数
 
 	pool worker.Pool
 
