@@ -96,6 +96,11 @@ func (tw *timewheel) requeue(task *Task) {
 	select {
 	case <-tw.ctx.Done(): // 时间轮已停止
 		return
+	case <-task.ctx.Done(): // 任务被取消
+		if tw.cancelFn != nil {
+			tw.cancelFn(task.ctx, task)
+		}
+		return
 	default:
 	}
 
