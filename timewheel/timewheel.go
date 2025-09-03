@@ -34,7 +34,7 @@ type TimeWheel interface {
 type TimeLevel struct {
 	size  int
 	prec  time.Duration
-	round time.Duration // 时间轮时长
+	round time.Duration // 一圈时长
 
 	slot atomic.Int32 // 当前槽位
 
