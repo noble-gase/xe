@@ -157,8 +157,8 @@ func TestPoolRace(t *testing.T) {
 
 		v := p.(*pool)
 		for {
-			t.Log(v.workers.Size())
-			if v.workers.Size() == 0 {
+			t.Log(v.workers.Len())
+			if v.workers.Len() == 0 {
 				return
 			}
 			time.Sleep(time.Second)
@@ -202,6 +202,7 @@ func TestPoolClose(t *testing.T) {
 		})
 
 		time.Sleep(100 * time.Millisecond)
-		fmt.Println("---------")
+
+		fmt.Println("=========")
 	}
 }

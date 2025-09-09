@@ -16,7 +16,7 @@ const (
 
 var ErrPoolClosed = errors.New("pool closed")
 
-// Pool 协程并发复用，降低CPU和内存负载
+// Pool 协程并发复用，降低「CPU」和「内存」负载
 type Pool interface {
 	// Go 执行任务，没有闲置协程时入缓存队列，缓存达到上限会阻塞等待
 	//
@@ -69,6 +69,8 @@ func New(cap int, opts ...Option) Pool {
 
 		capacity: cap,
 
+		workers: NewWorkerLRU(),
+
 		idleTimeout: defaultIdleTimeout,
 
 		ctx:    ctx,
@@ -80,7 +82,6 @@ func New(cap int, opts ...Option) Pool {
 	}
 	p.queue = make(chan *task)
 	p.cache = make(chan *task, p.cacheSize)
-	p.workers = NewWorkerLRU()
 
 	// 预填充
 	if p.prefill > 0 {
@@ -140,7 +141,7 @@ func (p *pool) run() {
 			case p.queue <- v:
 			default:
 				// 未达上限，新开一个协程
-				if p.workers.Size() < p.capacity {
+				if p.workers.Len() < p.capacity {
 					p.spawn()
 				}
 				// 等待闲置协程
