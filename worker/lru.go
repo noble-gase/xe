@@ -48,8 +48,8 @@ func (lru *WorkerLRU) IdleCheck(timeout time.Duration) {
 		w := e.Value.(*worker)
 
 		// 未超时，直接结束
-		if now-w.keepalive.Load() <= timeout.Nanoseconds() {
-			return
+		if now-w.keepalive.Load() < timeout.Nanoseconds() {
+			break
 		}
 
 		// 超时，移除并关闭协程
