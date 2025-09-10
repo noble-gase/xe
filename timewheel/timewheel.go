@@ -158,10 +158,10 @@ func (tw *timewheel) process(tl *TimeLevel, slot int) {
 				if tl.isMin {
 					tw.do(task)
 				} else {
-					tw.requeue(task)
+					tw.requeue(task) // 放入更小精度的时间轮
 				}
 			} else {
-				tl.buckets[slot].Add(task)
+				tl.buckets[slot].Add(task) // 放回原槽位，等待下一轮
 			}
 		}
 	}()
