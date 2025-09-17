@@ -10,7 +10,7 @@ import (
 
 // Task 任务
 type Task struct {
-	id int64 // 任务ID
+	id string // 任务ID
 
 	execFunc TaskFn    // 任务执行函数
 	execTime time.Time // 任务执行时间
@@ -22,7 +22,7 @@ type Task struct {
 }
 
 // ID 返回任务ID
-func (t *Task) ID() int64 {
+func (t *Task) ID() string {
 	return t.id
 }
 

@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/segmentio/ksuid"
 	"github.com/noble-gase/xe/worker"
 )
 
@@ -53,8 +54,6 @@ func Level(size int, prec time.Duration) *TimeLevel {
 }
 
 type timewheel struct {
-	uniqID atomic.Int64
-
 	levels []*TimeLevel
 
 	cancelFn CancelFn // ctx done 处理函数
@@ -68,7 +67,7 @@ type timewheel struct {
 
 func (tw *timewheel) Go(ctx context.Context, taskFn TaskFn, execTime time.Time) *Task {
 	task := &Task{
-		id: tw.uniqID.Add(1),
+		id: ksuid.New().String(),
 
 		execFunc: taskFn,
 		execTime: execTime,

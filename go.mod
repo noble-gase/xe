@@ -3,6 +3,7 @@ module github.com/noble-gase/xe
 go 1.23.0
 
 require (
+	github.com/segmentio/ksuid v1.0.4
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/sync v0.16.0
 )

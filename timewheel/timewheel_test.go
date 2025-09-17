@@ -19,22 +19,22 @@ func TestTimeWheel(t *testing.T) {
 
 	addedAt := time.Now()
 
-	fmt.Println("===========", "[now]", addedAt.Format(time.DateTime), "===========")
+	fmt.Println("=======================================", "[now]", addedAt.Format(time.DateTime), "======================")
 
 	// 立即执行
 	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task-%d [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+		ch <- fmt.Sprintf("task [%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now())
 
 	// 精度 < 1s，延迟到 1s 执行
 	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task-%d [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+		ch <- fmt.Sprintf("task [%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(200*time.Millisecond))
 
 	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task-%d [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+		ch <- fmt.Sprintf("task [%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		if task.Attempts() >= 9 {
 			return 0
 		}
@@ -56,32 +56,32 @@ func TestTaskCancel(t *testing.T) {
 	defer close(ch)
 
 	tw := New(WithCancelFn(func(ctx context.Context, task *Task) {
-		ch <- fmt.Sprintf("task-%d canceled", task.ID())
+		ch <- fmt.Sprintf("task [%s] canceled", task.ID())
 	}))
 	defer tw.Stop()
 
 	addedAt := time.Now()
 
-	fmt.Println("=======", "[now]", addedAt.Format(time.DateTime), "=======")
+	fmt.Println("===================================", "[now]", addedAt.Format(time.DateTime), "======================")
 
 	task := tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task-%d done", task.ID())
+		ch <- fmt.Sprintf("task [%s] done", task.ID())
 		return 0
 	}, time.Now().Add(2*time.Second))
 	task.Cancel()
 
 	_ = tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task-%d run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+		ch <- fmt.Sprintf("task [%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(6*time.Second))
 
 	_ = tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task-%d run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+		ch <- fmt.Sprintf("task [%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(7*time.Second))
 
 	_ = tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task-%d run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+		ch <- fmt.Sprintf("task [%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(8*time.Second))
 
