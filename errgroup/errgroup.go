@@ -13,14 +13,14 @@ import (
 // A zero Group is valid, has no limit on the number of active goroutines,
 // and does not cancel on error. use WithContext instead.
 type ErrGroup interface {
-	// Go calls the given function in a new goroutine.
+	// Go calls the given function in a goroutine.
 	//
 	// The first call to return a non-nil error cancels the group; its error will be
 	// returned by Wait.
 	Go(fn func(ctx context.Context) error)
 
-	// GOMAXPROCS set max goroutine to work.
-	GOMAXPROCS(n int)
+	// Limit limits the number of active goroutines in this group to at most n.
+	Limit(n int)
 
 	// Wait blocks until all function calls from the Go method have returned, then
 	// returns the first non-nil error (if any) from them.
@@ -51,7 +51,7 @@ func WithContext(ctx context.Context) ErrGroup {
 	return &group{ctx: ctx, cancel: cancel}
 }
 
-func (g *group) GOMAXPROCS(n int) {
+func (g *group) Limit(n int) {
 	if n <= 0 {
 		return
 	}

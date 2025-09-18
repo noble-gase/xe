@@ -35,7 +35,7 @@ func sleep1s(context.Context) error {
 	return nil
 }
 
-func TestGOMAXPROCS(t *testing.T) {
+func TestLimit(t *testing.T) {
 	ctx := context.Background()
 
 	// 没有并发数限制
@@ -54,7 +54,7 @@ func TestGOMAXPROCS(t *testing.T) {
 
 	// 限制并发数
 	eg2 := WithContext(ctx)
-	eg2.GOMAXPROCS(2)
+	eg2.Limit(2)
 	now = time.Now()
 	eg2.Go(sleep1s)
 	eg2.Go(sleep1s)
@@ -69,7 +69,7 @@ func TestGOMAXPROCS(t *testing.T) {
 
 	// context canceled
 	eg3 := WithContext(ctx)
-	eg3.GOMAXPROCS(2)
+	eg3.Limit(2)
 	eg3.Go(func(context.Context) error {
 		return errors.New("error for testing errgroup context")
 	})
