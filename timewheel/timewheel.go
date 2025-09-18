@@ -7,8 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/segmentio/ksuid"
 	"github.com/noble-gase/xe/worker"
+	"github.com/segmentio/ksuid"
 )
 
 type (
@@ -32,6 +32,7 @@ type TimeWheel interface {
 	Stop()
 }
 
+// TimeLevel 层级
 type TimeLevel struct {
 	size  int
 	prec  time.Duration
