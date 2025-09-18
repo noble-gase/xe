@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/noble-gase/xe/worker"
-	"github.com/segmentio/ksuid"
 )
 
 type (
@@ -24,9 +23,12 @@ type (
 
 // TimeWheel 时间轮
 type TimeWheel interface {
-	// Go 异步一个任务并返回任务ID；
+	// Go 任务入时间轮
+	//
 	// 注意：任务是异步执行的，若 context 取消｜超时，则任务也随之取消
-	Go(ctx context.Context, taskFn TaskFn, execTime time.Time) *Task
+	//
+	// 通常需要 context.WithoutCancel(ctx)
+	Go(ctx context.Context, taskId string, taskFn TaskFn, execTime time.Time) *Task
 
 	// Stop 终止时间轮
 	Stop()
@@ -66,9 +68,9 @@ type timewheel struct {
 	cancel context.CancelFunc
 }
 
-func (tw *timewheel) Go(ctx context.Context, taskFn TaskFn, execTime time.Time) *Task {
+func (tw *timewheel) Go(ctx context.Context, taskId string, taskFn TaskFn, execTime time.Time) *Task {
 	task := &Task{
-		id: ksuid.New().String(),
+		id: taskId,
 
 		execFunc: taskFn,
 		execTime: execTime,

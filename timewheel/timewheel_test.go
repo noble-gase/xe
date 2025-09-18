@@ -19,22 +19,22 @@ func TestTimeWheel(t *testing.T) {
 
 	addedAt := time.Now()
 
-	fmt.Println("=======================================", "[now]", addedAt.Format(time.DateTime), "======================")
+	fmt.Println("=============", "[now]", addedAt.Format(time.DateTime), "======================")
 
 	// 立即执行
-	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task [%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+	tw.Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
+		ch <- fmt.Sprintf("[%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now())
 
 	// 精度 < 1s，延迟到 1s 执行
-	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task [%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+	tw.Go(ctx, "task-2", func(ctx context.Context, task *Task) time.Duration {
+		ch <- fmt.Sprintf("[%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(200*time.Millisecond))
 
-	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task [%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+	tw.Go(ctx, "task-3", func(ctx context.Context, task *Task) time.Duration {
+		ch <- fmt.Sprintf("[%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		if task.Attempts() >= 9 {
 			return 0
 		}
@@ -62,26 +62,26 @@ func TestTaskCancel(t *testing.T) {
 
 	addedAt := time.Now()
 
-	fmt.Println("===================================", "[now]", addedAt.Format(time.DateTime), "======================")
+	fmt.Println("=========", "[now]", addedAt.Format(time.DateTime), "======================")
 
-	task := tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task [%s] done", task.ID())
+	task := tw.Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
+		ch <- fmt.Sprintf("[%s] done", task.ID())
 		return 0
 	}, time.Now().Add(2*time.Second))
 	task.Cancel()
 
-	_ = tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task [%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+	_ = tw.Go(ctx, "task-2", func(ctx context.Context, task *Task) time.Duration {
+		ch <- fmt.Sprintf("[%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(6*time.Second))
 
-	_ = tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task [%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+	_ = tw.Go(ctx, "task-3", func(ctx context.Context, task *Task) time.Duration {
+		ch <- fmt.Sprintf("[%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(7*time.Second))
 
-	_ = tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
-		ch <- fmt.Sprintf("task [%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
+	_ = tw.Go(ctx, "task-4", func(ctx context.Context, task *Task) time.Duration {
+		ch <- fmt.Sprintf("[%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(8*time.Second))
 
@@ -105,7 +105,7 @@ func TestCtxDone(t *testing.T) {
 
 	taskCtx, taskCancel := context.WithTimeout(context.Background(), time.Millisecond*200)
 	defer taskCancel()
-	tw.Go(taskCtx, func(ctx context.Context, task *Task) time.Duration {
+	tw.Go(taskCtx, "task-1", func(ctx context.Context, task *Task) time.Duration {
 		fmt.Println("task run after", time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(time.Second))
@@ -127,7 +127,7 @@ func TestPanic(t *testing.T) {
 
 	addedAt := time.Now()
 
-	tw.Go(ctx, func(ctx context.Context, task *Task) time.Duration {
+	tw.Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
 		fmt.Println("task run after", time.Since(addedAt).String())
 		panic("oh no!")
 	}, time.Now().Add(time.Second))
