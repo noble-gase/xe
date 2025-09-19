@@ -69,13 +69,17 @@ type timewheel struct {
 }
 
 func (tw *timewheel) Go(ctx context.Context, taskId string, taskFn TaskFn, execTime time.Time) *Task {
+	ctx, cancel := context.WithCancel(ctx)
+
 	task := &Task{
 		id: taskId,
 
 		execFunc: taskFn,
 		execTime: execTime,
+
+		ctx:    ctx,
+		cancel: cancel,
 	}
-	task.ctx, task.cancel = context.WithCancel(ctx)
 
 	// 入时间轮
 	tw.requeue(task)

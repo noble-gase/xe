@@ -171,10 +171,14 @@ func (p *pool) idle() {
 }
 
 func (p *pool) spawn() {
+	ctx, cancel := context.WithCancel(context.TODO())
+
 	wk := &worker{
 		id: p.uniqID.Add(1),
+
+		ctx:    ctx,
+		cancel: cancel,
 	}
-	wk.ctx, wk.cancel = context.WithCancel(context.TODO())
 
 	p.workers.Upsert(wk)
 
