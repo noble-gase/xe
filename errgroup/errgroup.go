@@ -19,9 +19,6 @@ type ErrGroup interface {
 	// returned by Wait.
 	Go(fn func(ctx context.Context) error)
 
-	// Limit limits the number of active goroutines in this group to at most n.
-	Limit(n int)
-
 	// Wait blocks until all function calls from the Go method have returned, then
 	// returns the first non-nil error (if any) from them.
 	Wait() error
@@ -42,21 +39,33 @@ type group struct {
 	cancel context.CancelCauseFunc
 }
 
-// WithContext returns a new group with a canceled Context derived from ctx.
+// WithContext returns a new ErrGroup that is associated with a derived Context.
 //
-// The derived Context is canceled the first time a function passed to Go
-// returns a non-nil error or the first time Wait returns, whichever occurs first.
-func WithContext(ctx context.Context) ErrGroup {
+// The returned group's Context is canceled in the following cases:
+//   - The first time a goroutine started with Go returns a non-nil error.
+//   - Or when Wait is called and returns.
+//
+// If limit > 0, the group restricts the number of active goroutines
+// to at most 'limit'. Additional functions passed to Go will be queued
+// and executed only when running goroutines complete.
+//
+// The derived Context is created with context.WithCancelCause, so the
+// cancellation reason is preserved and can be retrieved via context.Cause.
+func WithContext(ctx context.Context, limit ...int) ErrGroup {
 	ctx, cancel := context.WithCancelCause(ctx)
-	return &group{ctx: ctx, cancel: cancel}
-}
 
-func (g *group) Limit(n int) {
-	if n <= 0 {
-		return
+	g := &group{
+		ctx:    ctx,
+		cancel: cancel,
 	}
-	g.remain = n
+
+	if len(limit) == 0 || limit[0] <= 0 {
+		return g
+	}
+
+	g.remain = limit[0]
 	g.ch = make(chan func(context.Context) error)
+	return g
 }
 
 func (g *group) Go(fn func(ctx context.Context) error) {

@@ -53,8 +53,7 @@ func TestLimit(t *testing.T) {
 	}
 
 	// 限制并发数
-	eg2 := WithContext(ctx)
-	eg2.Limit(2)
+	eg2 := WithContext(ctx, 2)
 	now = time.Now()
 	eg2.Go(sleep1s)
 	eg2.Go(sleep1s)
@@ -68,8 +67,7 @@ func TestLimit(t *testing.T) {
 	}
 
 	// context canceled
-	eg3 := WithContext(ctx)
-	eg3.Limit(2)
+	eg3 := WithContext(ctx, 2)
 	eg3.Go(func(context.Context) error {
 		return errors.New("error for testing errgroup context")
 	})
