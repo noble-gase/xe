@@ -51,7 +51,7 @@ type group struct {
 //
 // The derived Context is created with context.WithCancelCause, so the
 // cancellation reason is preserved and can be retrieved via context.Cause.
-func WithContext(ctx context.Context, limit ...int) ErrGroup {
+func WithContext(ctx context.Context, limit int) ErrGroup {
 	ctx, cancel := context.WithCancelCause(ctx)
 
 	g := &group{
@@ -59,11 +59,11 @@ func WithContext(ctx context.Context, limit ...int) ErrGroup {
 		cancel: cancel,
 	}
 
-	if len(limit) == 0 || limit[0] <= 0 {
+	if limit <= 0 {
 		return g
 	}
 
-	g.remain = limit[0]
+	g.remain = limit
 	g.ch = make(chan func(context.Context) error)
 	return g
 }
