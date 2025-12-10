@@ -60,7 +60,8 @@ func WithContext(ctx context.Context, limit int) ErrGroup {
 		ctx:    ctx,
 		cancel: cancel,
 	}
-	if g.remain > 0 {
+	if limit > 0 {
+		g.remain = limit
 		g.ch = make(chan func(context.Context) error)
 	}
 	return g
