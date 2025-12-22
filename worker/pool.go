@@ -233,7 +233,7 @@ func Init(cap int, opts ...Option) {
 func Go(ctx context.Context, fn func(ctx context.Context)) error {
 	if pp == nil {
 		once.Do(func() {
-			pp = New(10000)
+			pp = New(10000, WithCacheSize(1000))
 		})
 	}
 	return pp.Go(ctx, fn)
