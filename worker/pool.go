@@ -3,15 +3,11 @@ package worker
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
-)
-
-const (
-	defaultPoolCap     = 10000
-	defaultIdleTimeout = 10 * time.Minute
 )
 
 var ErrPoolClosed = errors.New("pool closed")
@@ -54,47 +50,6 @@ type pool struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
-}
-
-// New 生成一个新的Pool
-func New(cap int, opts ...Option) Pool {
-	if cap <= 0 {
-		cap = defaultPoolCap
-	}
-
-	ctx, cancel := context.WithCancel(context.TODO())
-
-	p := &pool{
-		input: make(chan *task),
-
-		capacity: cap,
-
-		workers: NewWorkerLRU(),
-
-		idleTimeout: defaultIdleTimeout,
-
-		ctx:    ctx,
-		cancel: cancel,
-	}
-
-	for _, fn := range opts {
-		fn(p)
-	}
-	p.queue = make(chan *task)
-	p.cache = make(chan *task, p.cacheSize)
-
-	// 预填充
-	if p.prefill > 0 {
-		count := min(p.prefill, p.capacity)
-		for range count {
-			p.spawn()
-		}
-	}
-
-	go p.run()
-	go p.idle()
-
-	return p
 }
 
 func (p *pool) Go(ctx context.Context, fn func(ctx context.Context)) error {
@@ -217,6 +172,53 @@ func (p *pool) do(task *task) {
 	task.fn(task.ctx)
 }
 
+// New 生成一个新的Pool
+func New(cap int, opts ...Option) Pool {
+	if cap <= 0 {
+		cap = 10000
+	}
+
+	ctx, cancel := context.WithCancel(context.TODO())
+
+	p := &pool{
+		input: make(chan *task),
+
+		capacity: cap,
+
+		workers: NewWorkerLRU(),
+
+		idleTimeout: 10 * time.Minute,
+
+		ctx:    ctx,
+		cancel: cancel,
+	}
+
+	for _, fn := range opts {
+		fn(p)
+	}
+	p.queue = make(chan *task)
+	p.cache = make(chan *task, p.cacheSize)
+
+	// 预填充
+	if p.prefill > 0 {
+		count := min(p.prefill, p.capacity)
+		for range count {
+			p.spawn()
+		}
+	}
+
+	if p.panicFn == nil {
+		p.panicFn = func(ctx context.Context, err any, stack []byte) {
+			slog.LogAttrs(ctx, slog.LevelError, "panic recoverd", slog.Any("error", err), slog.String("stack", string(debug.Stack())))
+		}
+	}
+
+	go p.run()
+	go p.idle()
+
+	return p
+}
+
 var (
 	pp   Pool
 	once sync.Once
@@ -231,7 +233,7 @@ func Init(cap int, opts ...Option) {
 func Go(ctx context.Context, fn func(ctx context.Context)) error {
 	if pp == nil {
 		once.Do(func() {
-			pp = New(defaultPoolCap)
+			pp = New(10000)
 		})
 	}
 	return pp.Go(ctx, fn)

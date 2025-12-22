@@ -2,8 +2,9 @@ package timewheel
 
 import (
 	"context"
-	"runtime/debug"
+	"log/slog"
 	"sort"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -14,18 +15,15 @@ type (
 	// TaskFn 任务方法，返回下一次执行的延迟时间 (<=0 表示不再执行)
 	TaskFn func(ctx context.Context, task *Task) time.Duration
 
-	// CancelFn 任务 context「取消｜超时」的处理方法
+	// CancelFn 任务 context「超时｜取消」的处理方法
 	CancelFn func(ctx context.Context, task *Task)
-
-	// PanicFn 任务发生 panic 的处理方法
-	PanicFn func(ctx context.Context, task *Task, err any, stack []byte)
 )
 
 // TimeWheel 时间轮
 type TimeWheel interface {
 	// Go 任务入时间轮
 	//
-	// 注意：任务是异步执行的，若 context 取消｜超时，则任务也随之取消
+	// 注意：任务是异步执行的，若 context 超时｜取消，则任务也随之取消
 	//
 	// 通常需要 context.WithoutCancel(ctx)
 	Go(ctx context.Context, taskId string, taskFn TaskFn, execTime time.Time) *Task
@@ -47,6 +45,7 @@ type TimeLevel struct {
 	buckets []*Bucket
 }
 
+// Level 返回一个层级
 func Level(size int, prec time.Duration) *TimeLevel {
 	return &TimeLevel{
 		size:    size,
@@ -56,13 +55,27 @@ func Level(size int, prec time.Duration) *TimeLevel {
 	}
 }
 
+// Hour 24小时
+func Hour() *TimeLevel {
+	return Level(24, time.Hour)
+}
+
+// Minute 60分钟
+func Minute() *TimeLevel {
+	return Level(60, time.Minute)
+}
+
+// Second 60秒
+func Second() *TimeLevel {
+	return Level(60, time.Second)
+}
+
 type timewheel struct {
 	levels []*TimeLevel
 
-	cancelFn CancelFn // ctx done 处理函数
-	panicFn  PanicFn  // panic 处理函数
-
 	pool worker.Pool
+
+	cancelFn CancelFn
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -186,14 +199,6 @@ func (tw *timewheel) do(task *Task) {
 	}
 
 	_ = tw.pool.Go(task.ctx, func(ctx context.Context) {
-		if tw.panicFn != nil {
-			defer func() {
-				if err := recover(); err != nil {
-					tw.panicFn(task.ctx, task, err, debug.Stack())
-				}
-			}()
-		}
-
 		if d := time.Until(task.execTime); d > 0 {
 			time.Sleep(d)
 		}
@@ -229,23 +234,24 @@ func New(opts ...Option) TimeWheel {
 	for _, fn := range opts {
 		fn(tw)
 	}
+
 	if tw.pool == nil {
-		tw.pool = worker.New(2000, worker.WithCacheSize(100))
+		tw.pool = worker.New(10000, worker.WithCacheSize(1000))
 	}
-	if len(tw.levels) == 0 {
-		tw.levels = []*TimeLevel{
-			Level(24, time.Hour),   // 24小时
-			Level(60, time.Minute), // 60分钟
-			Level(60, time.Second), // 60秒
+
+	if tw.cancelFn == nil {
+		tw.cancelFn = func(ctx context.Context, task *Task) {
+			slog.LogAttrs(ctx, slog.LevelWarn, "task canceled", slog.String("task_id", task.ID()), slog.String("error", task.Context().Err().Error()))
 		}
 	}
 
-	// 层级排序
+	// 层级
+	if len(tw.levels) == 0 {
+		tw.levels = []*TimeLevel{Hour(), Minute(), Second()}
+	}
 	sort.SliceStable(tw.levels, func(i, j int) bool {
 		return tw.levels[i].prec > tw.levels[j].prec
 	})
-
-	// 最小精度
 	tw.levels[len(tw.levels)-1].isMin = true
 
 	// 初始化槽位
@@ -258,4 +264,31 @@ func New(opts ...Option) TimeWheel {
 	go tw.scheduler()
 
 	return tw
+}
+
+var (
+	tw   TimeWheel
+	once sync.Once
+)
+
+// Init 初始化默认的全局时间轮
+func Init(opts ...Option) {
+	tw = New(opts...)
+}
+
+// Go 使用默认的全局时间轮
+func Go(ctx context.Context, taskId string, taskFn TaskFn, execTime time.Time) *Task {
+	if tw == nil {
+		once.Do(func() {
+			tw = New()
+		})
+	}
+	return tw.Go(ctx, taskId, taskFn, execTime)
+}
+
+// Close 关闭默认的全局时间轮
+func Stop() {
+	if tw != nil {
+		tw.Stop()
+	}
 }

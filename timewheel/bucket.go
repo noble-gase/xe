@@ -31,6 +31,11 @@ func (t *Task) Attempts() int {
 	return int(t.attempts.Load())
 }
 
+// Context 返回任务的context
+func (t *Task) Context() context.Context {
+	return t.ctx
+}
+
 // Cancel 取消任务
 func (t *Task) Cancel() {
 	t.cancel()

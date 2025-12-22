@@ -14,26 +14,26 @@ func TestTimeWheel(t *testing.T) {
 	ch := make(chan string)
 	defer close(ch)
 
-	tw := New()
-	defer tw.Stop()
+	Init()
+	defer Stop()
 
 	addedAt := time.Now()
 
 	fmt.Println("=============", "[now]", addedAt.Format(time.DateTime), "======================")
 
 	// 立即执行
-	tw.Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
+	Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("[%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now())
 
 	// 精度 < 1s，延迟到 1s 执行
-	tw.Go(ctx, "task-2", func(ctx context.Context, task *Task) time.Duration {
+	Go(ctx, "task-2", func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("[%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(200*time.Millisecond))
 
-	tw.Go(ctx, "task-3", func(ctx context.Context, task *Task) time.Duration {
+	Go(ctx, "task-3", func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("[%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		if task.Attempts() >= 9 {
 			return 0
@@ -55,32 +55,32 @@ func TestTaskCancel(t *testing.T) {
 	ch := make(chan string)
 	defer close(ch)
 
-	tw := New(WithCancelFn(func(ctx context.Context, task *Task) {
+	Init(WithCancelFn(func(ctx context.Context, task *Task) {
 		ch <- fmt.Sprintf("task [%s] canceled", task.ID())
 	}))
-	defer tw.Stop()
+	defer Stop()
 
 	addedAt := time.Now()
 
 	fmt.Println("=========", "[now]", addedAt.Format(time.DateTime), "======================")
 
-	task := tw.Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
+	task := Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("[%s] done", task.ID())
 		return 0
 	}, time.Now().Add(2*time.Second))
 	task.Cancel()
 
-	_ = tw.Go(ctx, "task-2", func(ctx context.Context, task *Task) time.Duration {
+	_ = Go(ctx, "task-2", func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("[%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(6*time.Second))
 
-	_ = tw.Go(ctx, "task-3", func(ctx context.Context, task *Task) time.Duration {
+	_ = Go(ctx, "task-3", func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("[%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(7*time.Second))
 
-	_ = tw.Go(ctx, "task-4", func(ctx context.Context, task *Task) time.Duration {
+	_ = Go(ctx, "task-4", func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("[%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(8*time.Second))
@@ -94,18 +94,18 @@ func TestTaskCancel(t *testing.T) {
 func TestCtxDone(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	tw := New(WithCancelFn(func(ctx context.Context, task *Task) {
+	Init(WithCancelFn(func(ctx context.Context, task *Task) {
 		fmt.Println("[task]", task.ID())
 		fmt.Println("[error]", ctx.Err())
 		cancel()
 	}))
-	defer tw.Stop()
+	defer Stop()
 
 	addedAt := time.Now()
 
 	taskCtx, taskCancel := context.WithTimeout(context.Background(), time.Millisecond*200)
 	defer taskCancel()
-	tw.Go(taskCtx, "task-1", func(ctx context.Context, task *Task) time.Duration {
+	Go(taskCtx, "task-1", func(ctx context.Context, task *Task) time.Duration {
 		fmt.Println("task run after", time.Since(addedAt).String())
 		return 0
 	}, time.Now().Add(time.Second))
@@ -115,19 +115,15 @@ func TestCtxDone(t *testing.T) {
 
 // TestPanic 测试Panic
 func TestPanic(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 
-	tw := New(WithPanicFn(func(ctx context.Context, task *Task, err any, stack []byte) {
-		fmt.Println("[task]", task.ID())
-		fmt.Println("[error]", err)
-		fmt.Println("[stack]", string(stack))
-		cancel()
-	}))
-	defer tw.Stop()
+	Init()
+	defer Stop()
 
 	addedAt := time.Now()
 
-	tw.Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
+	Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
 		fmt.Println("task run after", time.Since(addedAt).String())
 		panic("oh no!")
 	}, time.Now().Add(time.Second))
