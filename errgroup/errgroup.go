@@ -55,8 +55,6 @@ func WithContext(ctx context.Context, limit int) ErrGroup {
 	ctx, cancel := context.WithCancelCause(ctx)
 
 	g := &group{
-		remain: limit,
-
 		ctx:    ctx,
 		cancel: cancel,
 	}
