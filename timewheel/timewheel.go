@@ -241,8 +241,11 @@ func New(opts ...Option) TimeWheel {
 
 	if tw.cancelFn == nil {
 		tw.cancelFn = func(ctx context.Context, task *Task) {
-			err := context.Cause(ctx)
-			slog.LogAttrs(ctx, slog.LevelWarn, "task canceled", slog.String("task_id", task.ID()), slog.String("error", err.Error()))
+			errInfo := "<nil>"
+			if err := context.Cause(ctx); err != nil {
+				errInfo = err.Error()
+			}
+			slog.LogAttrs(ctx, slog.LevelWarn, "task canceled", slog.String("task_id", task.ID()), slog.String("error", errInfo))
 		}
 	}
 
