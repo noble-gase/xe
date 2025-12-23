@@ -137,7 +137,7 @@ func (g *group) do(fn func(ctx context.Context) error) {
 
 	select {
 	case <-g.ctx.Done():
-		err = g.ctx.Err()
+		err = context.Cause(g.ctx)
 	default:
 		err = fn(g.ctx)
 	}

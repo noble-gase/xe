@@ -18,7 +18,7 @@ type Task struct {
 	attempts atomic.Int32 // 当前任务执行的次数
 
 	ctx    context.Context
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc
 }
 
 // ID 返回任务ID
@@ -31,14 +31,9 @@ func (t *Task) Attempts() int {
 	return int(t.attempts.Load())
 }
 
-// Context 返回任务的context
-func (t *Task) Context() context.Context {
-	return t.ctx
-}
-
 // Cancel 取消任务
-func (t *Task) Cancel() {
-	t.cancel()
+func (t *Task) Cancel(err error) {
+	t.cancel(err)
 }
 
 type Bucket struct {

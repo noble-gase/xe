@@ -82,7 +82,7 @@ type timewheel struct {
 }
 
 func (tw *timewheel) Go(ctx context.Context, taskId string, taskFn TaskFn, execTime time.Time) *Task {
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := context.WithCancelCause(ctx)
 
 	task := &Task{
 		id: taskId,
@@ -241,7 +241,8 @@ func New(opts ...Option) TimeWheel {
 
 	if tw.cancelFn == nil {
 		tw.cancelFn = func(ctx context.Context, task *Task) {
-			slog.LogAttrs(ctx, slog.LevelWarn, "task canceled", slog.String("task_id", task.ID()), slog.String("error", task.Context().Err().Error()))
+			err := context.Cause(ctx)
+			slog.LogAttrs(ctx, slog.LevelWarn, "task canceled", slog.String("task_id", task.ID()), slog.String("error", err.Error()))
 		}
 	}
 

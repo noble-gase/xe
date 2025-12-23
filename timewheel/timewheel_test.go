@@ -68,7 +68,7 @@ func TestTaskCancel(t *testing.T) {
 		ch <- fmt.Sprintf("[%s] done", task.ID())
 		return 0
 	}, time.Now().Add(2*time.Second))
-	task.Cancel()
+	task.Cancel(nil)
 
 	_ = Go(ctx, "task-2", func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("[%s] run at %s, duration %s", task.ID(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
