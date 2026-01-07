@@ -57,7 +57,7 @@ func (p *pool) Go(ctx context.Context, fn func(ctx context.Context)) error {
 	case <-p.ctx.Done(): // Pool关闭
 		return ErrPoolClosed
 	case <-ctx.Done():
-		return ctx.Err()
+		return context.Cause(ctx)
 	case p.input <- &task{ctx: ctx, fn: fn}:
 		return nil
 	}
