@@ -2,6 +2,7 @@ package timewheel
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
@@ -34,15 +35,18 @@ type TimeWheel interface {
 
 // TimeLevel 层级
 type TimeLevel struct {
-	size  int
+	size int
+
 	prec  time.Duration
 	round time.Duration // 一圈时长
 
 	slot atomic.Int32 // 当前槽位
 
-	isMin bool // 是否是最小精度
-
 	buckets []*Bucket
+}
+
+func (tl *TimeLevel) String() string {
+	return fmt.Sprintf("size=%d, prec=%s, slot=%d", tl.size, tl.prec.String(), tl.slot.Load())
 }
 
 // Level 返回一个层级
@@ -55,23 +59,25 @@ func Level(size int, prec time.Duration) *TimeLevel {
 	}
 }
 
-// Hour 24小时
+func Day(n int) *TimeLevel {
+	return Level(n, time.Hour*24)
+}
+
 func Hour() *TimeLevel {
 	return Level(24, time.Hour)
 }
 
-// Minute 60分钟
 func Minute() *TimeLevel {
 	return Level(60, time.Minute)
 }
 
-// Second 60秒
 func Second() *TimeLevel {
 	return Level(60, time.Second)
 }
 
 type timewheel struct {
 	levels []*TimeLevel
+	prec   time.Duration // 最小精度
 
 	pool worker.Pool
 
@@ -124,7 +130,7 @@ func (tw *timewheel) requeue(task *Task) {
 	}
 
 	delay := time.Until(task.execTime)
-	if delay <= 0 {
+	if delay < tw.prec {
 		tw.do(task)
 		return
 	}
@@ -137,14 +143,24 @@ func (tw *timewheel) requeue(task *Task) {
 	}
 
 	var mod int
-	if tl.isMin {
-		mod = int((delay + tl.prec - 1) / tl.prec)
-	} else {
+	if tl.prec > tw.prec {
 		mod = int(delay / tl.prec)
+	} else {
+		mod = int((delay + tl.prec - 1) / tl.prec)
 	}
 	slot := (mod%tl.size + int(tl.slot.Load())) % tl.size
 
+	// 任务入槽位
 	tl.buckets[slot].Add(task)
+
+	slog.LogAttrs(task.ctx, slog.LevelInfo, "[timewheel] task requeue",
+		slog.String("task_id", task.ID()),
+		slog.Int64("exec_time", task.execTime.UnixNano()),
+		slog.Int64("delay", delay.Nanoseconds()),
+		slog.Int("mod", mod),
+		slog.Int("slot", slot),
+		slog.String("level", tl.String()),
+	)
 }
 
 func (tw *timewheel) scheduler() {
@@ -173,15 +189,19 @@ func (tw *timewheel) process(tl *TimeLevel, slot int) {
 	go func() {
 		for e := taskList.Front(); e != nil; e = e.Next() {
 			task := e.Value.(*Task)
-			if delay := time.Until(task.execTime); delay < tl.round {
-				if tl.isMin {
-					tw.do(task)
-				} else {
-					tw.requeue(task) // 放入更小精度的时间轮
-				}
-			} else {
-				tl.buckets[slot].Add(task) // 放回原槽位，等待下一轮
+
+			delay := time.Until(task.execTime)
+			if delay < tw.prec {
+				tw.do(task)
+				continue
 			}
+			// 重新入时间轮
+			if delay < tl.round {
+				tw.requeue(task)
+				continue
+			}
+			// 放回原槽位，等待下一轮
+			tl.buckets[slot].Add(task)
 		}
 	}()
 }
@@ -199,9 +219,7 @@ func (tw *timewheel) do(task *Task) {
 	}
 
 	_ = tw.pool.Go(task.ctx, func(ctx context.Context) {
-		if d := time.Until(task.execTime); d > 0 {
-			time.Sleep(d)
-		}
+		time.Sleep(time.Until(task.execTime))
 
 		select {
 		case <-tw.ctx.Done(): // 时间轮停止
@@ -241,7 +259,10 @@ func New(opts ...Option) TimeWheel {
 
 	if tw.cancelFn == nil {
 		tw.cancelFn = func(ctx context.Context, task *Task) {
-			slog.LogAttrs(ctx, slog.LevelWarn, "task canceled", slog.String("task_id", task.ID()), slog.Any("reason", context.Cause(ctx)))
+			slog.LogAttrs(ctx, slog.LevelWarn, "[timewheel] task canceled",
+				slog.String("task_id", task.ID()),
+				slog.Any("reason", context.Cause(ctx)),
+			)
 		}
 	}
 
@@ -250,12 +271,18 @@ func New(opts ...Option) TimeWheel {
 		tw.levels = []*TimeLevel{Hour(), Minute(), Second()}
 	}
 	sort.SliceStable(tw.levels, func(i, j int) bool {
+		if tw.levels[i].prec == tw.levels[j].prec {
+			return tw.levels[i].size > tw.levels[j].size
+		}
 		return tw.levels[i].prec > tw.levels[j].prec
 	})
-	tw.levels[len(tw.levels)-1].isMin = true
 
 	// 初始化槽位
 	for _, v := range tw.levels {
+		if tw.prec == 0 || tw.prec > v.prec {
+			tw.prec = v.prec
+		}
+
 		for i := range v.size {
 			v.buckets[i] = NewBucket()
 		}

@@ -21,6 +21,14 @@ func TestTimeWheel(t *testing.T) {
 
 	fmt.Println("=============", "[now]", addedAt.Format(time.DateTime), "======================")
 
+	// 分层槽位
+	Go(ctx, "level-minute", func(ctx context.Context, task *Task) time.Duration {
+		return 0
+	}, time.Now().Add(5*time.Minute))
+	Go(ctx, "level-hour", func(ctx context.Context, task *Task) time.Duration {
+		return 0
+	}, time.Now().Add(5*time.Hour))
+
 	// 立即执行
 	Go(ctx, "task-1", func(ctx context.Context, task *Task) time.Duration {
 		ch <- fmt.Sprintf("[%s] [%d] run at %s, duration %s", task.ID(), task.Attempts(), time.Now().Format(time.DateTime), time.Since(addedAt).String())
