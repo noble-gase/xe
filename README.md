@@ -36,7 +36,7 @@ cpu: Apple M4
 func main() {
     ctx := context.Background()
 
-    pool := woker.New(5000)
+    pool := worker.New(5000)
     for i := 0; i < 100000000; i++ {
         i := i
         pool.Go(ctx, func(ctx context.Context) {
@@ -63,7 +63,7 @@ func main() {
 func main() {
     ctx := context.Background()
 
-    pool := woker.New(5000)
+    pool := worker.New(5000)
     for i := 0; i < 100; i++ {
         i := i
         pool.Go(ctx, func(ctx context.Context) {
