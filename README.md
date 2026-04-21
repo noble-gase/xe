@@ -14,7 +14,7 @@ go get -u github.com/noble-gase/xe
 
 | 模块      | 说明                        |
 | --------- | --------------------------- |
-| errgroup  | 支持协程数量控制            |
+| errgroup  | 控制协程数量并按需创建      |
 | timewheel | 分层时间轮（任务支持重试）  |
 | worker    | 基于 `channel` 实现的协程池 |
 
